@@ -18,7 +18,8 @@ subset that is useful for the current product use case:
 - TCP MSS clamp
 - service definitions
 - SSH-style connection limiting
-- explicit nftables flowtable hints for static Ethernet forwarding paths
+- explicit nftables flowtable hints for forwarding paths
+- dynamic flowtable synchronization for runtime interfaces
 
 The generated ruleset can be checked with `nft -c -f` before applying it.
 
@@ -323,14 +324,17 @@ Important properties:
 - WAN-facing directions should be added only when the resulting fast path is
   understood and intended.
 
-During normal ruleset generation, the first implementation is intentionally
+During normal ruleset generation, the static generator is intentionally
 conservative: only existing exact Ethernet interfaces such as `eth0` and `eth1`
-are added to the nftables flowtable device list. Prefix-style or dynamic
-interfaces such as `ppp+`, `wg+`, `br+`, `wlan0`, and `wwan0` are not added by
-the static generator.
+are added to the initial nftables flowtable device list. Prefix-style or dynamic
+interfaces such as `ppp+`, `wg+`, `br+`, `wlan0`, `wwan0`, or a WireGuard-based
+closed-network interface such as `wlisc` are handled by `flowtable-sync`.
 
 This avoids `nft -c` failures when a configured interface does not exist yet.
-Dynamic interface synchronization is left to a future `flowtable-sync` command.
+`flowtable-sync` reads the same JSON configuration, resolves the configured
+flowtable zone directions against the currently existing interfaces, recreates
+the `ft_forward` flowtable object with the desired device set, and rebuilds the
+`flowtable_forward` chain. It does not rebuild the whole firewall ruleset.
 
 Typical generated output looks like this:
 
@@ -389,7 +393,7 @@ The generator currently emits:
 
 ```text
 table inet awall_nft
-  flowtable ft_forward        # emitted when static Ethernet flowtable devices exist
+  flowtable ft_forward        # emitted when flowtable devices exist
   chain input
   chain flowtable_forward
   chain forward
@@ -402,8 +406,9 @@ table ip awall_nft_nat
 ```
 
 The filter chains use `policy drop`. The `flowtable_forward` chain is emitted as
-a stable insertion point for flowtable rules, so future synchronization can
-replace only that chain instead of rewriting the whole ruleset.
+a stable insertion point for flowtable rules. `flowtable-sync` can refresh that
+chain and recreate the `ft_forward` flowtable object without rewriting the whole
+ruleset.
 
 The NAT table is IPv4-only at the moment because the current use case is IPv4
 DNAT/SNAT masquerade.
@@ -466,6 +471,45 @@ awall_nft apply --no-check /tmp/awall_nft.nft
 
 Skipping the check is not recommended for normal use.
 
+### Synchronize flowtable devices
+
+```sh
+awall_nft flowtable-sync
+```
+
+This command is intended for runtime-created interfaces such as PPP, WireGuard,
+bridges, and product-specific closed-network interfaces such as `wlisc`.
+
+It performs the following limited update:
+
+1. read and normalize the current awall-style JSON configuration
+2. resolve explicit `flowtable` zone directions to currently existing interfaces
+3. flush `chain inet awall_nft flowtable_forward`
+4. recreate `flowtable inet awall_nft ft_forward` with the resolved devices
+5. re-add the matching `flow add @ft_forward` rules
+
+It does not regenerate or reapply the whole firewall ruleset.
+
+Typical hook examples:
+
+```sh
+# /etc/ppp/ip-up.d/awall-nft-flowtable
+# /etc/ppp/ip-down.d/awall-nft-flowtable
+#!/bin/sh
+/usr/local/sbin/awall_nft flowtable-sync || true
+```
+
+For WireGuard or a WireGuard-based closed-network interface, call the same command
+from the interface manager, or from `PostUp` / `PostDown` when using `wg-quick`.
+
+Normal output is intentionally compact:
+
+```text
+flowtable-sync: synced 1 rule(s), skipped 2 rule(s), devices: eth0, eth1, wlisc
+```
+
+Rules whose input or output side resolves to no existing interface are skipped.
+
 ## Build
 
 ```sh
@@ -511,7 +555,6 @@ Unsupported or incomplete areas:
 - nested imports
 - full SNAT feature set
 - ipset/address-set configuration
-- dynamic flowtable synchronization for PPP/WireGuard and other runtime interfaces
 - rollback/apply safety beyond `nft -c`
 
 ## Future ideas
@@ -519,7 +562,6 @@ Unsupported or incomplete areas:
 Possible future extensions:
 
 - address-set/ipset-like support using nftables sets
-- `flowtable-sync` for dynamic interfaces such as PPP and WireGuard
 - richer validation
 - rollback-safe apply mode
 - configurable logging
