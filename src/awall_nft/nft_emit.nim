@@ -1,14 +1,21 @@
-import std/[algorithm, options, strutils, tables]
+import std/[algorithm, options, os, strutils, tables]
 
 import ./errors
 import ./types
 
 type
+  FlowtableMode* = enum
+    ftOff
+    ftAuto
+    ftOn
+
   NftEmitOptions* = object
     inetTableName*: string
     natTableName*: string
     includeFlushRuleset*: bool
     allowRoutingIcmp*: bool
+    flowtableMode*: FlowtableMode
+    flowtableName*: string
 
 # ------------------------------------------------------------------------------
 #
@@ -19,6 +26,8 @@ proc defaultNftEmitOptions*(): NftEmitOptions =
     natTableName: "awall_nft_nat",
     includeFlushRuleset: true,
     allowRoutingIcmp: true,
+    flowtableMode: ftAuto,
+    flowtableName: "ft_forward",
   )
 
 # ------------------------------------------------------------------------------
@@ -66,6 +75,18 @@ proc joinQuotedSet(values: seq[string]): string =
     parts.add(q(value))
 
   result = "{ " & parts.join(", ") & " }"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc joinBareSet(values: seq[string]): string =
+  let sorted = sortedStrings(values)
+
+  if sorted.len == 1:
+    result = sorted[0]
+    return
+
+  result = "{ " & sorted.join(", ") & " }"
 
 # ------------------------------------------------------------------------------
 #
@@ -190,6 +211,78 @@ proc zoneMatchConditions(
     conditions.add("")
 
   result = ok(conditions)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc isDigitString(s: string): bool =
+  if s.len == 0:
+    result = false
+    return
+
+  for ch in s:
+    if ch < '0' or ch > '9':
+      result = false
+      return
+
+  result = true
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc isStaticEthernetFlowIface(name: string): bool =
+  ## Conservative auto-detection for the first flowtable implementation.
+  ##
+  ## Only ethN-style exact interfaces are selected automatically. Dynamic or
+  ## virtual interfaces such as ppp*, wg*, br*, wlan*, wwan*, veth*, lxcbr* are
+  ## intentionally excluded for now.
+  if not name.startsWith("eth"):
+    result = false
+    return
+
+  result = isDigitString(name[3 ..< name.len])
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc netIfaceExists(name: string): bool =
+  ## nftables flowtable devices must exist when the ruleset is checked/applied.
+  ##
+  ## Zone definitions may intentionally contain future or optional interfaces.
+  ## Those are fine for iifname/oifname matches, but they cannot be listed in
+  ## flowtable devices. Therefore flowtable generation must use only currently
+  ## existing netdevices.
+  result = dirExists("/sys/class/net" / name)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc collectFlowtableIfaces(cfg: NormalizedConfig, opts: NftEmitOptions): seq[string] =
+  result = @[]
+
+  if opts.flowtableMode == ftOff:
+    return
+
+  var seen = initTable[string, bool]()
+
+  for _, zone in cfg.zones:
+    for iface in zone.exactIfaces:
+      let name = string(iface)
+
+      if not isStaticEthernetFlowIface(name):
+        continue
+
+      if not netIfaceExists(name):
+        continue
+
+      if not seen.hasKey(name):
+        seen[name] = true
+        result.add(name)
+
+  result = sortedStrings(result)
+
+  if opts.flowtableMode == ftAuto and result.len < 2:
+    result = @[]
 
 # ------------------------------------------------------------------------------
 #
@@ -549,9 +642,37 @@ proc emitInputChain(outp: var string, cfg: NormalizedConfig, opts: NftEmitOption
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc emitFlowtableForwardChain(outp: var string) =
+proc emitFlowtableObject(outp: var string, ifaces: seq[string], opts: NftEmitOptions) =
+  if ifaces.len == 0:
+    return
+
+  addLine(outp, 1, "flowtable " & opts.flowtableName & " {")
+  addLine(outp, 2, "hook ingress priority 0;")
+  addLine(outp, 2, "devices = " & joinBareSet(ifaces) & ";")
+  addLine(outp, 1, "}")
+  addLine(outp, 0, "")
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc emitFlowtableForwardChain(
+    outp: var string,
+    ifaces: seq[string],
+    opts: NftEmitOptions
+) =
   addLine(outp, 1, "chain flowtable_forward {")
-  addLine(outp, 2, "# awall_nft flowtable-sync manages this chain")
+
+  if ifaces.len == 0:
+    addLine(outp, 2, "# awall_nft flowtable-sync manages this chain")
+  else:
+    let ifaceSet = joinQuotedSet(ifaces)
+    addLine(
+      outp,
+      2,
+      "iifname " & ifaceSet & " oifname " & ifaceSet & " flow add @" &
+      opts.flowtableName
+    )
+    addLine(outp, 2, "# awall_nft flowtable-sync may replace this chain")
   addLine(outp, 1, "}")
   addLine(outp, 0, "")
 
@@ -679,9 +800,12 @@ proc emitSnatRules(outp: var string, cfg: NormalizedConfig): AE[void] =
 #
 # ------------------------------------------------------------------------------
 proc emitFilterTable(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptions): AE[void] =
+  let flowIfaces = collectFlowtableIfaces(cfg, opts)
+
   addLine(outp, 0, "table inet " & opts.inetTableName & " {")
   ?emitInputChain(outp, cfg, opts)
-  emitFlowtableForwardChain(outp)
+  emitFlowtableObject(outp, flowIfaces, opts)
+  emitFlowtableForwardChain(outp, flowIfaces, opts)
   ?emitForwardChain(outp, cfg, opts)
   ?emitOutputChain(outp, cfg, opts)
   ?emitPostroutingMangleChain(outp, cfg)
