@@ -655,26 +655,143 @@ proc emitFlowtableObject(outp: var string, ifaces: seq[string], opts: NftEmitOpt
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc emitFlowtableForwardChain(
+proc containsString(values: seq[string], target: string): bool =
+  for value in values:
+    if value == target:
+      result = true
+      return
+
+  result = false
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc addUniqueString(values: var seq[string], value: string) =
+  if not containsString(values, value):
+    values.add(value)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc zoneFlowtableIfaces(
+    cfg: NormalizedConfig,
+    zones: seq[ZoneName],
+    flowIfaces: seq[string]
+): AE[seq[string]] =
+  var names: seq[string] = @[]
+
+  if zones.len == 0:
+    result = ok(flowIfaces)
+    return
+
+  for zone in zones:
+    if zone == ZoneFirewall:
+      continue
+
+    let runtime = ?zoneRuntime(cfg, zone)
+
+    for iface in runtime.exactIfaces:
+      let name = string(iface)
+
+      if containsString(flowIfaces, name):
+        addUniqueString(names, name)
+
+    for prefix in runtime.prefixIfaces:
+      for iface in flowIfaces:
+        if iface.startsWith(prefix):
+          addUniqueString(names, iface)
+
+  result = ok(sortedStrings(names))
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc emitFlowtableForwardRule(
     outp: var string,
-    ifaces: seq[string],
+    seen: var Table[string, bool],
+    inIfaces: seq[string],
+    outIfaces: seq[string],
     opts: NftEmitOptions
 ) =
+  if inIfaces.len == 0 or outIfaces.len == 0:
+    return
+
+  let line =
+    "iifname " & joinQuotedSet(inIfaces) &
+    " oifname " & joinQuotedSet(outIfaces) &
+    " meta l4proto { tcp, udp } flow add @" & opts.flowtableName
+
+  if seen.hasKey(line):
+    return
+
+  seen[line] = true
+  addLine(outp, 2, line)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc emitFlowtableForwardPolicyRules(
+    outp: var string,
+    cfg: NormalizedConfig,
+    flowIfaces: seq[string],
+    opts: NftEmitOptions
+): AE[void] =
+  ## Emit flow add rules only for explicit forward accept policies.
+  ##
+  ## A policy such as `{ "in": "LAN", "action": "accept" }` or
+  ## `{ "out": "LAN", "action": "accept" }` is valid as a firewall policy,
+  ## but it is too broad for early flowtable insertion. For flowtable, we only
+  ## use policies where both `in` and `out` zones are explicitly specified and
+  ## neither side is `_fw`.
+  ##
+  ## This keeps the early `jump flowtable_forward` safe: every generated rule in
+  ## this chain must correspond to a direction that is explicitly accepted.
+  var seen = initTable[string, bool]()
+
+  for policy in cfg.policies:
+    if policy.action != actAccept:
+      continue
+
+    if policy.inZones.len == 0 or policy.outZones.len == 0:
+      continue
+
+    if policy.inZones.len == 1 and policy.inZones[0] == ZoneFirewall:
+      continue
+
+    if policy.outZones.len == 1 and policy.outZones[0] == ZoneFirewall:
+      continue
+
+    if not policyAppliesToForward(policy):
+      continue
+
+    let inIfaces = ?zoneFlowtableIfaces(cfg, policy.inZones, flowIfaces)
+    let outIfaces = ?zoneFlowtableIfaces(cfg, policy.outZones, flowIfaces)
+
+    emitFlowtableForwardRule(outp, seen, inIfaces, outIfaces, opts)
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc emitFlowtableForwardChain(
+    outp: var string,
+    cfg: NormalizedConfig,
+    ifaces: seq[string],
+    opts: NftEmitOptions
+): AE[void] =
   addLine(outp, 1, "chain flowtable_forward {")
 
   if ifaces.len == 0:
     addLine(outp, 2, "# awall_nft flowtable-sync manages this chain")
   else:
-    let ifaceSet = joinQuotedSet(ifaces)
-    addLine(
-      outp,
-      2,
-      "iifname " & ifaceSet & " oifname " & ifaceSet & " flow add @" &
-      opts.flowtableName
-    )
+    ?emitFlowtableForwardPolicyRules(outp, cfg, ifaces, opts)
     addLine(outp, 2, "# awall_nft flowtable-sync may replace this chain")
+
   addLine(outp, 1, "}")
   addLine(outp, 0, "")
+
+  result = okVoid()
 
 # ------------------------------------------------------------------------------
 #
@@ -805,7 +922,7 @@ proc emitFilterTable(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptio
   addLine(outp, 0, "table inet " & opts.inetTableName & " {")
   ?emitInputChain(outp, cfg, opts)
   emitFlowtableObject(outp, flowIfaces, opts)
-  emitFlowtableForwardChain(outp, flowIfaces, opts)
+  ?emitFlowtableForwardChain(outp, cfg, flowIfaces, opts)
   ?emitForwardChain(outp, cfg, opts)
   ?emitOutputChain(outp, cfg, opts)
   ?emitPostroutingMangleChain(outp, cfg)
