@@ -1,0 +1,24 @@
+{
+    "description": "Base policies",
+
+    "zone": {
+	"Closed" : { "iface": [ "ppp500", "ppp501", "ppp502", "ppp503", "wg+" ] }
+    },
+
+    "policy": [
+	{ "in": "_fw", "out": "WAN", "action": "accept" },
+	{ "in": "LAN", "action": "accept" },
+	{ "out": "LAN", "action": "accept" },
+	{ "in": "WAN", "action": "drop" },
+	{ "in": "Closed", "action": "accept" },
+	{ "out": "Closed", "action": "accept" }
+    ],
+
+    "snat": [
+	{ "out": [ "WAN", "Closed" ] }
+    ],
+
+    "clamp-mss": [
+	{ "out": [ "WAN", "Closed" ] }
+    ]
+}

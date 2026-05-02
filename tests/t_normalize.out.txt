@@ -1,0 +1,212 @@
+normalize: ok
+== normalized zones ==
+{
+  LAN: ZoneRuntime(name: "LAN", exactIfaces: @["ppp100"], prefixIfaces: @["br"]),
+  WAN: ZoneRuntime(name: "WAN", exactIfaces: @["ppp1", "ppp0", "wwan0", "wlan0"], prefixIfaces: @[]),
+  Closed: ZoneRuntime(name: "Closed", exactIfaces: @["eth1", "ppp502", "ppp501", "ppp500", "eth0", "ppp503"], prefixIfaces: @["wg"])
+}.toTable
+== normalized filters ==
+@[
+  NormalizedFilterRule(
+    inZones: @["WAN"],
+    outZones: @["_fw"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[22],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    action: accept,
+    connLimit: Option[types.ConnLimit](
+      val: ConnLimit(count: 3, interval: 20),
+      has: true
+    )
+  )
+]
+== normalized dnats ==
+@[
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[8022],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.5",
+    toPort: Option[system.uint16](val: 22, has: true)
+  ),
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[8122],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.252",
+    toPort: Option[system.uint16](val: 22, has: true)
+  ),
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[8222],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.251",
+    toPort: Option[system.uint16](val: 22, has: true)
+  ),
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[8322],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.250",
+    toPort: Option[system.uint16](val: 22, has: true)
+  ),
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[10081],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.1",
+    toPort: Option[system.uint16](val: 80, has: true)
+  ),
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[8880],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.253",
+    toPort: Option[system.uint16](val: 80, has: true)
+  ),
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[8422],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.100",
+    toPort: Option[system.uint16](val: 22, has: true)
+  ),
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[11080],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.100",
+    toPort: Option[system.uint16](val: 80, has: true)
+  ),
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[10443],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.5",
+    toPort: Option[system.uint16](val: 443, has: true)
+  ),
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[8888],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.8",
+    toPort: Option[system.uint16](val: 80, has: true)
+  ),
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[3389],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.201",
+    toPort: Option[system.uint16](val: 3389, has: true)
+  ),
+  NormalizedDnatRule(
+    inZones: @["Closed"],
+    matches: @[
+      NormalizedServiceMatch(
+        family: ,
+        proto: tcp,
+        ports: @[1152],
+        icmpType: Option[system.int](val: 0, has: false),
+        icmpReplyType: Option[system.int](val: 0, has: false),
+        ctHelper: Option[system.string](val: "", has: false)
+      )
+    ],
+    toAddr: "192.168.253.200",
+    toPort: Option[system.uint16](val: 1152, has: true)
+  )
+]

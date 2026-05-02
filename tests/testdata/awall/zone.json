@@ -1,0 +1,25 @@
+{
+  "description": "Base zones",
+  "zone": {
+    "Closed": {
+      "iface": [
+        "eth0",
+        "eth1"
+      ]
+    },
+    "LAN": {
+      "iface": [
+        "ppp100",
+        "br+"
+      ]
+    },
+    "WAN": {
+      "iface": [
+        "ppp0",
+        "ppp1",
+        "wlan0",
+        "wwan0"
+      ]
+    }
+  }
+}

@@ -1,0 +1,959 @@
+== catalog ==
+catalog: ServiceCatalogDto(
+  before: "%defaults",
+  service: {
+    http: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[80]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    gre: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: gre,
+          port: PortList(items: @[]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    dns: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[53]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[53]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    vnc: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[5900]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    ipsec: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: esp,
+          port: PortList(items: @[]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[500, 4500]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    pgsql: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[5432]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    kpasswd: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[464]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[464]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    submission: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[587]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    netbios-ds: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[138]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[138]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    netbios-ns: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: inet,
+          proto: tcp,
+          port: PortList(items: @[137]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: inet,
+          proto: udp,
+          port: PortList(items: @[137]),
+          type: 0,
+          replyType: 0,
+          ctHelper: "netbios-ns"
+        )
+      ]
+    ),
+    ntp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[123]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    pop3: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[110]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    smtp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[25]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    irc: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[6667]),
+          type: 0,
+          replyType: 0,
+          ctHelper: "irc"
+        )
+      ]
+    ),
+    kerberos: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[88]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[88]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    bacula-dir: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[9101]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    msft-gc-ssl: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[3269]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[3269]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    ftp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[21]),
+          type: 0,
+          replyType: 0,
+          ctHelper: "ftp"
+        )
+      ]
+    ),
+    telnet: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[23]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    openvpn: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[1194]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    ldap: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[389]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[389]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    bacula-fd: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[9102]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    rtmp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[1935]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    snmp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[161]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    rtsp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[554]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    l2tp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[1701]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    bgp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[179]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    hp-pdl: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[9100]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    icmp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: icmp,
+          port: PortList(items: @[]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    radius: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[1812]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[1812]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    sieve: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[4190]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    ospf: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: ospf,
+          port: PortList(items: @[]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    sip-tls: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[5061]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[5061]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    imap: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[143]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    syslog: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[514]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    discard: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[9]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[9]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    snmp-trap: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[162]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    dhcp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: inet,
+          proto: udp,
+          port: PortList(items: @[67, 68]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    imaps: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[993]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    https: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[443]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    ms-sql-m: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[1434]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    rsync: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[873]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    ms-sql-s: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[1433]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    sip: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[5060]),
+          type: 0,
+          replyType: 0,
+          ctHelper: "sip"
+        ),
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[5060]),
+          type: 0,
+          replyType: 0,
+          ctHelper: "sip"
+        )
+      ]
+    ),
+    http-alt: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[8080]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    netbios-ssn: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[139]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[139]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    epmap: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[135]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[135]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    ldaps: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[636]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[636]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    bacula-sd: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[9103]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    radius-acct: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[1813]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[1813]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    teredo: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[3544]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    babel: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[6697]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    pop3s: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[995]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    microsoft-ds: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[445]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[445]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    ping: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: icmp,
+          port: PortList(items: @[]),
+          type: 8,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: icmpv6,
+          port: PortList(items: @[]),
+          type: 128,
+          replyType: 129,
+          ctHelper: ""
+        )
+      ]
+    ),
+    tftp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[69]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    rdp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[3389]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    igmp: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: igmp,
+          port: PortList(items: @[]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    msft-gc: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[3268]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        ),
+        ServiceAtom(
+          family: ,
+          proto: udp,
+          port: PortList(items: @[3268]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    ),
+    ssh: ServiceEntries(
+      items: @[
+        ServiceAtom(
+          family: ,
+          proto: tcp,
+          port: PortList(items: @[22]),
+          type: 0,
+          replyType: 0,
+          ctHelper: ""
+        )
+      ]
+    )
+  }.toTable
+)
+buildServiceDb: ok
+service count: 60
+== service: ssh ==
+@[
+  ServiceAtom(
+    family: ,
+    proto: tcp,
+    port: PortList(items: @[22]),
+    type: 0,
+    replyType: 0,
+    ctHelper: ""
+  )
+]
+== service: dns ==
+@[
+  ServiceAtom(
+    family: ,
+    proto: udp,
+    port: PortList(items: @[53]),
+    type: 0,
+    replyType: 0,
+    ctHelper: ""
+  ),
+  ServiceAtom(
+    family: ,
+    proto: tcp,
+    port: PortList(items: @[53]),
+    type: 0,
+    replyType: 0,
+    ctHelper: ""
+  )
+]
+== service: ipsec ==
+@[
+  ServiceAtom(
+    family: ,
+    proto: esp,
+    port: PortList(items: @[]),
+    type: 0,
+    replyType: 0,
+    ctHelper: ""
+  ),
+  ServiceAtom(
+    family: ,
+    proto: udp,
+    port: PortList(items: @[500, 4500]),
+    type: 0,
+    replyType: 0,
+    ctHelper: ""
+  )
+]
+== service: ping ==
+@[
+  ServiceAtom(
+    family: ,
+    proto: icmp,
+    port: PortList(items: @[]),
+    type: 8,
+    replyType: 0,
+    ctHelper: ""
+  ),
+  ServiceAtom(
+    family: ,
+    proto: icmpv6,
+    port: PortList(items: @[]),
+    type: 128,
+    replyType: 129,
+    ctHelper: ""
+  )
+]
+== service: rdp ==
+@[
+  ServiceAtom(
+    family: ,
+    proto: tcp,
+    port: PortList(items: @[3389]),
+    type: 0,
+    replyType: 0,
+    ctHelper: ""
+  )
+]

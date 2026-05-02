@@ -1,0 +1,110 @@
+{
+  "description": "dnat",
+  "dnat": [
+    {
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 8022
+      },
+      "to-addr": "192.168.253.5",
+      "to-port": 22
+    },
+    {
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 8122
+      },
+      "to-addr": "192.168.253.252",
+      "to-port": 22
+    },
+    {
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 8222
+      },
+      "to-addr": "192.168.253.251",
+      "to-port": 22
+    },
+    {
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 8322
+      },
+      "to-addr": "192.168.253.250",
+      "to-port": 22
+    },
+    {
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 10081
+      },
+      "to-addr": "192.168.253.1",
+      "to-port": 80
+    },
+    {
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 8880
+      },
+      "to-addr": "192.168.253.253",
+      "to-port": 80
+    },
+    {
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 8422
+      },
+      "to-addr": "192.168.253.100",
+      "to-port": 22
+    },
+    {
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 11080
+      },
+      "to-addr": "192.168.253.100",
+      "to-port": 80
+    },
+    {
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 10443
+      },
+      "to-addr": "192.168.253.5",
+      "to-port": 443
+    },
+    {
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 8888
+      },
+      "to-addr": "192.168.253.8",
+      "to-port": 80
+    },
+    {
+      "in": "Closed",
+      "service": "rdp",
+      "to-addr": "192.168.253.201",
+      "to-port": 3389
+    },
+    {
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 1152
+      },
+      "to-addr": "192.168.253.200",
+      "to-port": 1152
+    }
+  ]
+}

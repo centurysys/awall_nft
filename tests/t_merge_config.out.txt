@@ -1,0 +1,246 @@
+merged: AwallSubsetConfig(
+  descriptions: @["Base policies", "Base zones", "Filter", "dnat"],
+  zones: {
+    LAN: ZoneConfig(ifaces: ["br+", "ppp100"].toHashSet),
+    WAN: ZoneConfig(ifaces: ["ppp1", "ppp0", "wwan0", "wlan0"].toHashSet),
+    Closed: ZoneConfig(ifaces: ["eth1", "ppp502", "ppp501", "ppp500", "wg+", "eth0", "ppp503"].toHashSet)
+  }.toTable,
+  policies: @[
+    PolicyRule(inZones: @["_fw"], outZones: @["WAN"], action: accept),
+    PolicyRule(inZones: @["LAN"], outZones: @[], action: accept),
+    PolicyRule(inZones: @[], outZones: @["LAN"], action: accept),
+    PolicyRule(inZones: @["WAN"], outZones: @[], action: drop),
+    PolicyRule(inZones: @["Closed"], outZones: @[], action: accept),
+    PolicyRule(inZones: @[], outZones: @["Closed"], action: accept)
+  ],
+  filters: @[
+    FilterRule(
+      inZones: @["WAN"],
+      outZones: @["_fw"],
+      service: ServiceSpec(kind: sskName, name: "ssh"),
+      action: accept,
+      connLimit: Option[types.ConnLimit](
+        val: ConnLimit(count: 3, interval: 20),
+        has: true
+      )
+    )
+  ],
+  dnats: @[
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(
+        kind: sskInline,
+        atoms: @[
+          ServiceAtom(
+            family: ,
+            proto: tcp,
+            port: PortList(items: @[8022]),
+            type: 0,
+            replyType: 0,
+            ctHelper: ""
+          )
+        ]
+      ),
+      toAddr: "192.168.253.5",
+      toPort: Option[system.uint16](val: 22, has: true)
+    ),
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(
+        kind: sskInline,
+        atoms: @[
+          ServiceAtom(
+            family: ,
+            proto: tcp,
+            port: PortList(items: @[8122]),
+            type: 0,
+            replyType: 0,
+            ctHelper: ""
+          )
+        ]
+      ),
+      toAddr: "192.168.253.252",
+      toPort: Option[system.uint16](val: 22, has: true)
+    ),
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(
+        kind: sskInline,
+        atoms: @[
+          ServiceAtom(
+            family: ,
+            proto: tcp,
+            port: PortList(items: @[8222]),
+            type: 0,
+            replyType: 0,
+            ctHelper: ""
+          )
+        ]
+      ),
+      toAddr: "192.168.253.251",
+      toPort: Option[system.uint16](val: 22, has: true)
+    ),
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(
+        kind: sskInline,
+        atoms: @[
+          ServiceAtom(
+            family: ,
+            proto: tcp,
+            port: PortList(items: @[8322]),
+            type: 0,
+            replyType: 0,
+            ctHelper: ""
+          )
+        ]
+      ),
+      toAddr: "192.168.253.250",
+      toPort: Option[system.uint16](val: 22, has: true)
+    ),
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(
+        kind: sskInline,
+        atoms: @[
+          ServiceAtom(
+            family: ,
+            proto: tcp,
+            port: PortList(items: @[10081]),
+            type: 0,
+            replyType: 0,
+            ctHelper: ""
+          )
+        ]
+      ),
+      toAddr: "192.168.253.1",
+      toPort: Option[system.uint16](val: 80, has: true)
+    ),
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(
+        kind: sskInline,
+        atoms: @[
+          ServiceAtom(
+            family: ,
+            proto: tcp,
+            port: PortList(items: @[8880]),
+            type: 0,
+            replyType: 0,
+            ctHelper: ""
+          )
+        ]
+      ),
+      toAddr: "192.168.253.253",
+      toPort: Option[system.uint16](val: 80, has: true)
+    ),
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(
+        kind: sskInline,
+        atoms: @[
+          ServiceAtom(
+            family: ,
+            proto: tcp,
+            port: PortList(items: @[8422]),
+            type: 0,
+            replyType: 0,
+            ctHelper: ""
+          )
+        ]
+      ),
+      toAddr: "192.168.253.100",
+      toPort: Option[system.uint16](val: 22, has: true)
+    ),
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(
+        kind: sskInline,
+        atoms: @[
+          ServiceAtom(
+            family: ,
+            proto: tcp,
+            port: PortList(items: @[11080]),
+            type: 0,
+            replyType: 0,
+            ctHelper: ""
+          )
+        ]
+      ),
+      toAddr: "192.168.253.100",
+      toPort: Option[system.uint16](val: 80, has: true)
+    ),
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(
+        kind: sskInline,
+        atoms: @[
+          ServiceAtom(
+            family: ,
+            proto: tcp,
+            port: PortList(items: @[10443]),
+            type: 0,
+            replyType: 0,
+            ctHelper: ""
+          )
+        ]
+      ),
+      toAddr: "192.168.253.5",
+      toPort: Option[system.uint16](val: 443, has: true)
+    ),
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(
+        kind: sskInline,
+        atoms: @[
+          ServiceAtom(
+            family: ,
+            proto: tcp,
+            port: PortList(items: @[8888]),
+            type: 0,
+            replyType: 0,
+            ctHelper: ""
+          )
+        ]
+      ),
+      toAddr: "192.168.253.8",
+      toPort: Option[system.uint16](val: 80, has: true)
+    ),
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(kind: sskName, name: "rdp"),
+      toAddr: "192.168.253.201",
+      toPort: Option[system.uint16](val: 3389, has: true)
+    ),
+    DnatRule(
+      inZones: @["Closed"],
+      service: ServiceSpec(
+        kind: sskInline,
+        atoms: @[
+          ServiceAtom(
+            family: ,
+            proto: tcp,
+            port: PortList(items: @[1152]),
+            type: 0,
+            replyType: 0,
+            ctHelper: ""
+          )
+        ]
+      ),
+      toAddr: "192.168.253.200",
+      toPort: Option[system.uint16](val: 1152, has: true)
+    )
+  ],
+  snats: @[
+    SnatRule(
+      outZones: @["WAN", "Closed"],
+      toAddr: Option[types.IpAddress](val: "", has: false),
+      toPort: Option[system.uint16](val: 0, has: false),
+      action: include,
+      service: ServiceSpec(kind: sskNone)
+    )
+  ],
+  clampMssRules: @[
+    ClampMssRule(outZones: @["WAN", "Closed"])
+  ]
+)
