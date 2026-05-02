@@ -272,6 +272,42 @@ proc validateClampMssRules(cfg: AwallSubsetConfig): AE[void] =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc validateFlowtableRules(cfg: AwallSubsetConfig): AE[void] =
+  var index = 0
+
+  for flowtable in cfg.flowtableRules:
+    let where = "flowtable[" & $index & "]"
+
+    if flowtable.inZones.len == 0:
+      return failVoid(ekInvalidRule, where & ": in zone is required")
+
+    if flowtable.outZones.len == 0:
+      return failVoid(ekInvalidRule, where & ": out zone is required")
+
+    for zone in flowtable.inZones:
+      if zone == ZoneFirewall:
+        return failVoid(
+          ekUnsupported,
+          where & ": _fw is not supported in in zone"
+        )
+
+    for zone in flowtable.outZones:
+      if zone == ZoneFirewall:
+        return failVoid(
+          ekUnsupported,
+          where & ": _fw is not supported in out zone"
+        )
+
+    ?validateZoneRefs(cfg, flowtable.inZones, where & ".in")
+    ?validateZoneRefs(cfg, flowtable.outZones, where & ".out")
+
+    inc(index)
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc validateConfig*(cfg: AwallSubsetConfig): AE[void] =
   ?validateDefinedZones(cfg).trace("validateConfig.validateDefinedZones")
   ?validatePolicies(cfg).trace("validateConfig.validatePolicies")
@@ -279,5 +315,6 @@ proc validateConfig*(cfg: AwallSubsetConfig): AE[void] =
   ?validateDnats(cfg).trace("validateConfig.validateDnats")
   ?validateSnats(cfg).trace("validateConfig.validateSnats")
   ?validateClampMssRules(cfg).trace("validateConfig.validateClampMssRules")
+  ?validateFlowtableRules(cfg).trace("validateConfig.validateFlowtableRules")
 
   result = okVoid()
