@@ -730,42 +730,23 @@ proc emitFlowtableForwardRule(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc emitFlowtableForwardPolicyRules(
+proc emitFlowtableForwardRules(
     outp: var string,
     cfg: NormalizedConfig,
     flowIfaces: seq[string],
     opts: NftEmitOptions
 ): AE[void] =
-  ## Emit flow add rules only for explicit forward accept policies.
+  ## Emit flow add rules only from the explicit awall_nft flowtable section.
   ##
-  ## A policy such as `{ "in": "LAN", "action": "accept" }` or
-  ## `{ "out": "LAN", "action": "accept" }` is valid as a firewall policy,
-  ## but it is too broad for early flowtable insertion. For flowtable, we only
-  ## use policies where both `in` and `out` zones are explicitly specified and
-  ## neither side is `_fw`.
-  ##
-  ## This keeps the early `jump flowtable_forward` safe: every generated rule in
-  ## this chain must correspond to a direction that is explicitly accepted.
+  ## The flowtable section is an optimization hint, not a permission rule.
+  ## Normal policy/filter/DNAT rules must still allow the traffic. This emitter
+  ## only uses it to decide which already-allowed zone directions may enter the
+  ## nftables flowtable fast path.
   var seen = initTable[string, bool]()
 
-  for policy in cfg.policies:
-    if policy.action != actAccept:
-      continue
-
-    if policy.inZones.len == 0 or policy.outZones.len == 0:
-      continue
-
-    if policy.inZones.len == 1 and policy.inZones[0] == ZoneFirewall:
-      continue
-
-    if policy.outZones.len == 1 and policy.outZones[0] == ZoneFirewall:
-      continue
-
-    if not policyAppliesToForward(policy):
-      continue
-
-    let inIfaces = ?zoneFlowtableIfaces(cfg, policy.inZones, flowIfaces)
-    let outIfaces = ?zoneFlowtableIfaces(cfg, policy.outZones, flowIfaces)
+  for rule in cfg.flowtableRules:
+    let inIfaces = ?zoneFlowtableIfaces(cfg, rule.inZones, flowIfaces)
+    let outIfaces = ?zoneFlowtableIfaces(cfg, rule.outZones, flowIfaces)
 
     emitFlowtableForwardRule(outp, seen, inIfaces, outIfaces, opts)
 
@@ -785,7 +766,7 @@ proc emitFlowtableForwardChain(
   if ifaces.len == 0:
     addLine(outp, 2, "# awall_nft flowtable-sync manages this chain")
   else:
-    ?emitFlowtableForwardPolicyRules(outp, cfg, ifaces, opts)
+    ?emitFlowtableForwardRules(outp, cfg, ifaces, opts)
     addLine(outp, 2, "# awall_nft flowtable-sync may replace this chain")
 
   addLine(outp, 1, "}")
