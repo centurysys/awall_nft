@@ -45,6 +45,27 @@ proc runCommand(command: string): AE[CmdResult] =
 
   result = ok(cmdResult)
 
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc runNftCommand*(args: openArray[string]): AE[CmdResult] =
+  ## Run one nft command by passing each argument through shell quoting.
+  ##
+  ## This helper is intended for small imperative updates such as:
+  ##
+  ##   nft flush chain inet awall_nft flowtable_forward
+  ##
+  ## Ruleset-wide updates should still use checkNft/applyNft with an explicit
+  ## ruleset file.
+  var command = "nft"
+
+  for arg in args:
+    command.add(" ")
+    command.add(shellQuote(arg))
+
+  result = runCommand(command)
+
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------

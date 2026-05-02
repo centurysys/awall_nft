@@ -2,6 +2,7 @@ import std/[algorithm, os, strformat, strutils, tables]
 
 import ./errors
 import ./load_config
+import ./nft_cmd
 import ./normalize
 import ./types
 
@@ -172,16 +173,38 @@ proc buildFlowAddRuleCommand(inIfaces: seq[string], outIfaces: seq[string]): str
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc flushFlowtableForwardChain(): AE[void] =
+  echo &"flowtable-sync: run: nft flush chain {NftFamily} {NftTable} {FlowtableChain}"
+
+  let res = ?runNftCommand([
+    "flush",
+    "chain",
+    NftFamily,
+    NftTable,
+    FlowtableChain
+  ]).trace("flushFlowtableForwardChain.runNftCommand")
+
+  if res.exitCode != 0:
+    return fail[void](
+      ekOther,
+      "failed to flush flowtable_forward chain"
+    )
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc flowtableSyncCommand*(
     mainPath: string,
     privateDir: string,
     servicesPath: string
 ): AE[void] =
-  ## Prepare the flowtable-sync command path without changing nftables state.
+  ## Synchronize the flowtable_forward chain for currently existing interfaces.
   ##
-  ## This command intentionally has no nft side effects yet.  It verifies that
-  ## configured flowtable zone directions can be resolved to currently existing
-  ## network interfaces, then prints the nft commands that would be executed.
+  ## This step only flushes the chain.  It still prints the add-rule plan instead
+  ## of executing it, so destructive behavior remains limited while validating
+  ## the imperative nft command path.
   let loaded = ?loadConfig(
     mainPath,
     privateDir,
@@ -197,7 +220,8 @@ proc flowtableSyncCommand*(
 
   echo &"flowtable-sync: loaded {normalized.flowtableRules.len} flowtable rule(s)"
   echo &"flowtable-sync: existing interfaces={{ {formatList(existingIfaces)} }}"
-  echo &"flowtable-sync: nft: flush chain {NftFamily} {NftTable} {FlowtableChain}"
+
+  ?flushFlowtableForwardChain().trace("flowtableSyncCommand.flushFlowtableForwardChain")
 
   for index, rule in normalized.flowtableRules:
     let inIfaces = ?resolveRuleIfaces(
@@ -219,11 +243,11 @@ proc flowtableSyncCommand*(
       echo &"flowtable-sync: rule[{index}]: skipped because resolved interface set is empty"
       continue
 
-    echo "flowtable-sync: nft: " & buildFlowAddRuleCommand(
+    echo "flowtable-sync: would run: " & buildFlowAddRuleCommand(
       inIfaces,
       outIfaces
     )
 
-  echo "flowtable-sync: nft update is not implemented yet"
+  echo "flowtable-sync: flow add rule execution is not implemented yet"
 
   result = okVoid()
