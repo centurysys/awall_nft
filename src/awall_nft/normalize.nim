@@ -153,12 +153,31 @@ proc normalizeDnats(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc normalizeFlowtableRules(
+    rules: seq[FlowtableRule]
+): AE[seq[NormalizedFlowtableRule]] =
+  var normalized: seq[NormalizedFlowtableRule] = @[]
+
+  for rule in rules:
+    normalized.add(NormalizedFlowtableRule(
+      inZones: rule.inZones,
+      outZones: rule.outZones,
+    ))
+
+  result = ok(normalized)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc normalizeConfig*(
     cfg: AwallSubsetConfig,
     services: ServiceDb
 ): AE[NormalizedConfig] =
   let filters = ?normalizeFilters(cfg, services).trace("normalizeConfig.filters")
   let dnats = ?normalizeDnats(cfg, services).trace("normalizeConfig.dnats")
+  let flowtableRules = ?normalizeFlowtableRules(
+    cfg.flowtableRules
+  ).trace("normalizeConfig.flowtableRules")
 
   result = ok(NormalizedConfig(
     zones: normalizeZones(cfg),
@@ -167,4 +186,5 @@ proc normalizeConfig*(
     dnats: dnats,
     snats: cfg.snats,
     clampMssRules: cfg.clampMssRules,
+    flowtableRules: flowtableRules,
   ))

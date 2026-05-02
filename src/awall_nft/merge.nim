@@ -136,6 +136,23 @@ proc mergeClampMssRules(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc mergeFlowtableRules(
+    dst: var AwallSubsetConfig,
+    rules: seq[FlowtableDto]
+): AE[void] =
+  for flowtable in rules:
+    let rule = FlowtableRule(
+      inZones: toZoneNames(flowtable.inZones),
+      outZones: toZoneNames(flowtable.outZones),
+    )
+
+    dst.flowtableRules.add(rule)
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc mergeInto*(dst: var AwallSubsetConfig, src: ConfigDto): AE[void] =
   addDescription(dst, src.description)
 
@@ -145,6 +162,7 @@ proc mergeInto*(dst: var AwallSubsetConfig, src: ConfigDto): AE[void] =
   ?mergeDnats(dst, src.dnat).trace("mergeInto.mergeDnats")
   ?mergeSnats(dst, src.snat).trace("mergeInto.mergeSnats")
   ?mergeClampMssRules(dst, src.clampMss).trace("mergeInto.mergeClampMssRules")
+  ?mergeFlowtableRules(dst, src.flowtable).trace("mergeInto.mergeFlowtableRules")
 
   result = okVoid()
 

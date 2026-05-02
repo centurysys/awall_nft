@@ -114,6 +114,14 @@ type
   ClampMssDto* = object
     outZones* {.json: "out,required".}: ZoneList
 
+  FlowtableDto* = object
+    ## awall_nft extension.
+    ##
+    ## This is not an awall permission rule. It only marks explicit zone-to-zone
+    ## forward directions that may be accelerated through nftables flowtable.
+    inZones* {.json: "in,required".}: ZoneList
+    outZones* {.json: "out,required".}: ZoneList
+
   ConfigDto* = object
     description* {.json: ",omitempty".}: string
     zone* {.json: ",omitempty".}: Table[string, ZoneDto]
@@ -122,6 +130,7 @@ type
     dnat* {.json: ",omitempty".}: seq[DnatDto]
     snat* {.json: ",omitempty".}: seq[SnatDto]
     clampMss* {.json: "clamp-mss,omitempty".}: seq[ClampMssDto]
+    flowtable* {.json: ",omitempty".}: seq[FlowtableDto]
 
   MainDto* = object
     description* {.json: ",omitempty".}: string
@@ -162,6 +171,14 @@ type
   ClampMssRule* = object
     outZones*: seq[ZoneName]
 
+  FlowtableRule* = object
+    ## awall_nft extension.
+    ##
+    ## Flowtable rules are optimization hints, not firewall permissions.
+    ## The normal policy/filter/DNAT rules must still allow the traffic.
+    inZones*: seq[ZoneName]
+    outZones*: seq[ZoneName]
+
   AwallSubsetConfig* = object
     descriptions*: seq[string]
     zones*: Table[ZoneName, ZoneConfig]
@@ -170,6 +187,7 @@ type
     dnats*: seq[DnatRule]
     snats*: seq[SnatRule]
     clampMssRules*: seq[ClampMssRule]
+    flowtableRules*: seq[FlowtableRule]
 
   ServiceDb* = Table[ServiceName, seq[ServiceAtom]]
 
@@ -210,6 +228,10 @@ type
     toAddr*: IpAddress
     toPort*: Option[uint16]
 
+  NormalizedFlowtableRule* = object
+    inZones*: seq[ZoneName]
+    outZones*: seq[ZoneName]
+
   NormalizedConfig* = object
     zones*: Table[ZoneName, ZoneRuntime]
     policies*: seq[PolicyRule]
@@ -217,6 +239,7 @@ type
     dnats*: seq[NormalizedDnatRule]
     snats*: seq[SnatRule]
     clampMssRules*: seq[ClampMssRule]
+    flowtableRules*: seq[NormalizedFlowtableRule]
 
 const
   ZoneFirewall* = ZoneName("_fw")
@@ -591,3 +614,4 @@ proc initAwallSubsetConfig*(): AwallSubsetConfig =
   result.dnats = @[]
   result.snats = @[]
   result.clampMssRules = @[]
+  result.flowtableRules = @[]

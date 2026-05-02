@@ -18,6 +18,7 @@ subset that is useful for the current product use case:
 - TCP MSS clamp
 - service definitions
 - SSH-style connection limiting
+- explicit nftables flowtable hints for static Ethernet forwarding paths
 
 The generated ruleset can be checked with `nft -c -f` before applying it.
 
@@ -52,6 +53,7 @@ nftables rules directly.
   - unexpected interfaces are not implicitly trusted.
 - Avoid noisy default logging for Internet-facing drops.
 - Keep the implementation lightweight and suitable for embedded Linux.
+- Keep firewall permission rules separate from flowtable optimization hints.
 
 ## Current status
 
@@ -65,6 +67,8 @@ The current implementation can:
 - resolve service names such as `ssh`, `dns`, and `rdp`
 - normalize wildcard-like interface names such as `br+` and `wg+`
 - generate nftables rules
+- generate explicit nftables flowtable rules for configured zone-to-zone directions
+- limit initial flowtable devices to existing exact `ethN` interfaces
 - run `nft -c -f` to check a generated ruleset
 - optionally apply a checked ruleset with `nft -f`
 
@@ -281,6 +285,71 @@ Supported protocols currently include:
 - `ospf`
 - `igmp`
 
+### Flowtable hints
+
+`flowtable` is an `awall-nft`-specific extension. It is not part of the
+standard awall permission model.
+
+It does not allow traffic by itself. Normal `policy`, `filter`, `dnat`, and
+`snat` processing still decides which packets are accepted. The `flowtable`
+section only marks explicit forward directions that may be accelerated through
+nftables flowtable after they have passed the normal rules.
+
+Example:
+
+```json
+{
+  "flowtable": [
+    { "in": "LAN", "out": "Closed" },
+    { "in": "Closed", "out": "LAN" },
+    { "in": "Closed", "out": "Closed" }
+  ]
+}
+```
+
+The direction is expressed in zone names, not raw interface names. For example,
+`{ "in": "LAN", "out": "Closed" }` means that forward traffic entering from
+interfaces in the `LAN` zone and leaving through interfaces in the `Closed` zone
+may be added to the flowtable.
+
+Important properties:
+
+- `flowtable` is an optimization hint, not a firewall permission rule.
+- `awall-nft` does not infer flowtable eligibility from `policy` rules.
+- `in` and `out` are required.
+- `_fw` is rejected because flowtable applies to forwarded traffic only.
+- Broad one-sided policies such as `{ "in": "LAN", "action": "accept" }` do
+  not automatically create flowtable rules.
+- WAN-facing directions should be added only when the resulting fast path is
+  understood and intended.
+
+During normal ruleset generation, the first implementation is intentionally
+conservative: only existing exact Ethernet interfaces such as `eth0` and `eth1`
+are added to the nftables flowtable device list. Prefix-style or dynamic
+interfaces such as `ppp+`, `wg+`, `br+`, `wlan0`, and `wwan0` are not added by
+the static generator.
+
+This avoids `nft -c` failures when a configured interface does not exist yet.
+Dynamic interface synchronization is left to a future `flowtable-sync` command.
+
+Typical generated output looks like this:
+
+```nft
+flowtable ft_forward {
+  hook ingress priority 0;
+  devices = { eth0, eth1 };
+}
+
+chain flowtable_forward {
+  iifname "eth0" oifname "eth1" meta l4proto { tcp, udp } flow add @ft_forward
+  iifname "eth1" oifname "eth0" meta l4proto { tcp, udp } flow add @ft_forward
+  # awall_nft flowtable-sync may replace this chain
+}
+```
+
+The generated `forward` chain jumps to `flowtable_forward` after accepting
+established/related traffic and before the normal forward rules.
+
 ### Connection limiting
 
 awall may generate iptables `recent` rules like:
@@ -320,7 +389,9 @@ The generator currently emits:
 
 ```text
 table inet awall_nft
+  flowtable ft_forward        # emitted when static Ethernet flowtable devices exist
   chain input
+  chain flowtable_forward
   chain forward
   chain output
   chain postrouting_mangle
@@ -330,7 +401,9 @@ table ip awall_nft_nat
   chain postrouting
 ```
 
-The filter chains use `policy drop`.
+The filter chains use `policy drop`. The `flowtable_forward` chain is emitted as
+a stable insertion point for flowtable rules, so future synchronization can
+replace only that chain instead of rewriting the whole ruleset.
 
 The NAT table is IPv4-only at the moment because the current use case is IPv4
 DNAT/SNAT masquerade.
@@ -438,7 +511,7 @@ Unsupported or incomplete areas:
 - nested imports
 - full SNAT feature set
 - ipset/address-set configuration
-- flowtable generation
+- dynamic flowtable synchronization for PPP/WireGuard and other runtime interfaces
 - rollback/apply safety beyond `nft -c`
 
 ## Future ideas
@@ -446,7 +519,7 @@ Unsupported or incomplete areas:
 Possible future extensions:
 
 - address-set/ipset-like support using nftables sets
-- flowtable generation for static Ethernet forwarding paths
+- `flowtable-sync` for dynamic interfaces such as PPP and WireGuard
 - richer validation
 - rollback-safe apply mode
 - configurable logging
