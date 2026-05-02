@@ -549,10 +549,20 @@ proc emitInputChain(outp: var string, cfg: NormalizedConfig, opts: NftEmitOption
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc emitFlowtableForwardChain(outp: var string) =
+  addLine(outp, 1, "chain flowtable_forward {")
+  addLine(outp, 2, "# awall_nft flowtable-sync manages this chain")
+  addLine(outp, 1, "}")
+  addLine(outp, 0, "")
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc emitForwardChain(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptions): AE[void] =
   addLine(outp, 1, "chain forward {")
   addLine(outp, 2, "type filter hook forward priority filter; policy drop;")
   addLine(outp, 2, "ct state established,related accept")
+  addLine(outp, 2, "jump flowtable_forward")
   emitRoutingIcmpRules(outp, "forward", opts)
 
   var index = 0
@@ -671,6 +681,7 @@ proc emitSnatRules(outp: var string, cfg: NormalizedConfig): AE[void] =
 proc emitFilterTable(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptions): AE[void] =
   addLine(outp, 0, "table inet " & opts.inetTableName & " {")
   ?emitInputChain(outp, cfg, opts)
+  emitFlowtableForwardChain(outp)
   ?emitForwardChain(outp, cfg, opts)
   ?emitOutputChain(outp, cfg, opts)
   ?emitPostroutingMangleChain(outp, cfg)
