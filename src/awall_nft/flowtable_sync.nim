@@ -112,6 +112,13 @@ proc addUnique(values: var seq[string], name: string) =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc addUniqueAll(values: var seq[string], names: seq[string]) =
+  for name in names:
+    values.addUnique(name)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc resolveZoneIfaces(
     cfg: NormalizedConfig,
     zoneName: ZoneName,
@@ -261,6 +268,7 @@ proc flowtableSyncCommand*(
 
   var addedRules = 0
   var skippedRules = 0
+  var desiredDevices: seq[string] = @[]
 
   for index, rule in normalized.flowtableRules:
     let inIfaces = ?resolveRuleIfaces(
@@ -283,6 +291,9 @@ proc flowtableSyncCommand*(
       skippedRules.inc()
       continue
 
+    desiredDevices.addUniqueAll(inIfaces)
+    desiredDevices.addUniqueAll(outIfaces)
+
     ?addFlowtableRule(
       inIfaces,
       outIfaces
@@ -290,6 +301,8 @@ proc flowtableSyncCommand*(
 
     addedRules.inc()
 
+  echo &"flowtable-sync: desired flowtable devices={{ {formatList(desiredDevices)} }}"
+  echo &"flowtable-sync: flowtable device update is not implemented yet"
   echo &"flowtable-sync: added {addedRules} flowtable rule(s), skipped {skippedRules} rule(s)"
 
   result = okVoid()
