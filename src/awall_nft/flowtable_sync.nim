@@ -45,17 +45,6 @@ proc formatList(values: seq[string]): string =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc formatZones(zones: seq[ZoneName]): string =
-  var parts: seq[string] = @[]
-
-  for zone in zones:
-    parts.add(string(zone))
-
-  result = formatList(parts)
-
-# ------------------------------------------------------------------------------
-#
-# ------------------------------------------------------------------------------
 proc quoteNftString(value: string): string =
   result = "\"" & value.replace("\\", "\\\\").replace("\"", "\\\"") & "\""
 
@@ -188,15 +177,6 @@ proc resolveRuleIfaces(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc buildFlowAddRuleCommand(inIfaces: seq[string], outIfaces: seq[string]): string =
-  result = &"nft add rule {NftFamily} {NftTable} {FlowtableChain} " &
-    &"iifname {formatNftIfaceExpr(inIfaces)} " &
-    &"oifname {formatNftIfaceExpr(outIfaces)} " &
-    &"meta l4proto {{ tcp, udp }} flow add @{FlowtableName}"
-
-# ------------------------------------------------------------------------------
-#
-# ------------------------------------------------------------------------------
 proc buildFlowAddRuleArgs(inIfaces: seq[string], outIfaces: seq[string]): seq[string] =
   result = @[
     "add",
@@ -215,14 +195,6 @@ proc buildFlowAddRuleArgs(inIfaces: seq[string], outIfaces: seq[string]): seq[st
     "add",
     "@" & FlowtableName
   ]
-
-# ------------------------------------------------------------------------------
-#
-# ------------------------------------------------------------------------------
-proc buildAddFlowtableCommand(devices: seq[string]): string =
-  result = &"nft add flowtable {NftFamily} {NftTable} {FlowtableName} " &
-    &"{{ hook ingress priority {FlowtableHookPriority}; " &
-    &"devices = {formatFlowtableDevicesExpr(devices)}; }}"
 
 # ------------------------------------------------------------------------------
 #
@@ -265,8 +237,6 @@ proc flowtableObjectExists(): AE[bool] =
 #
 # ------------------------------------------------------------------------------
 proc flushFlowtableForwardChain(): AE[void] =
-  echo &"flowtable-sync: run: nft flush chain {NftFamily} {NftTable} {FlowtableChain}"
-
   discard ?runNftCommand([
     "flush",
     "chain",
@@ -284,11 +254,8 @@ proc deleteFlowtableObject(): AE[void] =
   let exists = ?flowtableObjectExists().trace("deleteFlowtableObject.flowtableObjectExists")
 
   if not exists:
-    echo &"flowtable-sync: skip: flowtable {FlowtableName} does not exist"
     result = okVoid()
     return
-
-  echo &"flowtable-sync: run: nft delete flowtable {NftFamily} {NftTable} {FlowtableName}"
 
   discard ?runNftCommand([
     "delete",
@@ -305,11 +272,8 @@ proc deleteFlowtableObject(): AE[void] =
 # ------------------------------------------------------------------------------
 proc addFlowtableObject(devices: seq[string]): AE[void] =
   if devices.len == 0:
-    echo "flowtable-sync: skip: no flowtable devices resolved"
     result = okVoid()
     return
-
-  echo "flowtable-sync: run: " & buildAddFlowtableCommand(devices)
 
   discard ?runNftCommand(
     buildAddFlowtableArgs(devices)
@@ -321,13 +285,6 @@ proc addFlowtableObject(devices: seq[string]): AE[void] =
 #
 # ------------------------------------------------------------------------------
 proc addFlowtableRule(inIfaces: seq[string], outIfaces: seq[string]): AE[void] =
-  let command = buildFlowAddRuleCommand(
-    inIfaces,
-    outIfaces
-  )
-
-  echo "flowtable-sync: run: " & command
-
   discard ?runNftCommand(
     buildFlowAddRuleArgs(
       inIfaces,
@@ -360,11 +317,7 @@ proc buildRulePlans(
       existingIfaces
     ).trace("buildRulePlans.resolveOutIfaces")
 
-    echo &"flowtable-sync: rule[{index}]: zones: in={{ {formatZones(rule.inZones)} }} out={{ {formatZones(rule.outZones)} }}"
-    echo &"flowtable-sync: rule[{index}]: ifaces: iif={{ {formatList(inIfaces)} }} oif={{ {formatList(outIfaces)} }}"
-
     if inIfaces.len == 0 or outIfaces.len == 0:
-      echo &"flowtable-sync: rule[{index}]: skipped because resolved interface set is empty"
       skippedRules.inc()
       continue
 
@@ -400,10 +353,9 @@ proc flowtableSyncCommand*(
 ): AE[void] =
   ## Synchronize the flowtable_forward chain and ft_forward object.
   ##
-  ## The command first resolves all configured flowtable rules to currently
-  ## existing interfaces.  It then flushes the chain, recreates the ft_forward
-  ## flowtable object with the desired device set, and finally rebuilds the flow
-  ## add rules.
+  ## The command resolves configured flowtable rules to currently existing
+  ## interfaces, recreates the ft_forward flowtable object with the desired
+  ## device set, and rebuilds the flow add rules.
   let loaded = ?loadConfig(
     mainPath,
     privateDir,
@@ -416,18 +368,12 @@ proc flowtableSyncCommand*(
   ).trace("flowtableSyncCommand.normalizeConfig")
 
   let existingIfaces = collectExistingNetIfaces()
-
-  echo &"flowtable-sync: loaded {normalized.flowtableRules.len} flowtable rule(s)"
-  echo &"flowtable-sync: existing interfaces={{ {formatList(existingIfaces)} }}"
-
   let (plans, skippedRules) = ?buildRulePlans(
     normalized,
     existingIfaces
   ).trace("flowtableSyncCommand.buildRulePlans")
 
   let desiredDevices = collectDesiredDevices(plans)
-
-  echo &"flowtable-sync: desired flowtable devices={{ {formatList(desiredDevices)} }}"
 
   ?flushFlowtableForwardChain().trace("flowtableSyncCommand.flushFlowtableForwardChain")
   ?deleteFlowtableObject().trace("flowtableSyncCommand.deleteFlowtableObject")
@@ -443,6 +389,9 @@ proc flowtableSyncCommand*(
 
     addedRules.inc()
 
-  echo &"flowtable-sync: added {addedRules} flowtable rule(s), skipped {skippedRules} rule(s)"
+  if desiredDevices.len == 0:
+    echo &"flowtable-sync: synced {addedRules} rule(s), skipped {skippedRules} rule(s), no devices"
+  else:
+    echo &"flowtable-sync: synced {addedRules} rule(s), skipped {skippedRules} rule(s), devices: {formatList(desiredDevices)}"
 
   result = okVoid()
