@@ -1,8 +1,20 @@
-import std/strformat
+import std/[strformat, strutils]
 
 import ./errors
 import ./load_config
 import ./normalize
+import ./types
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc formatZones(zones: seq[ZoneName]): string =
+  var parts: seq[string] = @[]
+
+  for zone in zones:
+    parts.add(string(zone))
+
+  result = parts.join(", ")
 
 # ------------------------------------------------------------------------------
 #
@@ -29,6 +41,10 @@ proc flowtableSyncCommand*(
   ).trace("flowtableSyncCommand.normalizeConfig")
 
   echo &"flowtable-sync: loaded {normalized.flowtableRules.len} flowtable rule(s)"
+
+  for index, rule in normalized.flowtableRules:
+    echo &"flowtable-sync: rule[{index}]: in={{ {formatZones(rule.inZones)} }} out={{ {formatZones(rule.outZones)} }}"
+
   echo "flowtable-sync: nft update is not implemented yet"
 
   result = okVoid()
