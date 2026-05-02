@@ -191,6 +191,7 @@ proc buildFlowAddRuleArgs(inIfaces: seq[string], outIfaces: seq[string]): seq[st
     "meta",
     "l4proto",
     "{ tcp, udp }",
+    "counter",
     "flow",
     "add",
     "@" & FlowtableName

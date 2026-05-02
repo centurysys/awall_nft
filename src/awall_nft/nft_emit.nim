@@ -719,7 +719,7 @@ proc emitFlowtableForwardRule(
   let line =
     "iifname " & joinQuotedSet(inIfaces) &
     " oifname " & joinQuotedSet(outIfaces) &
-    " meta l4proto { tcp, udp } flow add @" & opts.flowtableName
+    " meta l4proto { tcp, udp } counter flow add @" & opts.flowtableName
 
   if seen.hasKey(line):
     return
