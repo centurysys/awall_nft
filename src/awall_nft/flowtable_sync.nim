@@ -5,6 +5,12 @@ import ./load_config
 import ./normalize
 import ./types
 
+const
+  NftFamily = "inet"
+  NftTable = "awall_nft"
+  FlowtableChain = "flowtable_forward"
+  FlowtableName = "ft_forward"
+
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
@@ -36,6 +42,33 @@ proc formatZones(zones: seq[ZoneName]): string =
     parts.add(string(zone))
 
   result = formatList(parts)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc quoteNftString(value: string): string =
+  result = "\"" & value.replace("\\", "\\\\").replace("\"", "\\\"") & "\""
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc formatNftIfaceExpr(values: seq[string]): string =
+  let sorted = sortedStrings(values)
+
+  if sorted.len == 0:
+    result = ""
+    return
+
+  if sorted.len == 1:
+    result = quoteNftString(sorted[0])
+    return
+
+  var quoted: seq[string] = @[]
+
+  for value in sorted:
+    quoted.add(quoteNftString(value))
+
+  result = "{ " & quoted.join(", ") & " }"
 
 # ------------------------------------------------------------------------------
 #
@@ -130,6 +163,15 @@ proc resolveRuleIfaces(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc buildFlowAddRuleCommand(inIfaces: seq[string], outIfaces: seq[string]): string =
+  result = &"nft add rule {NftFamily} {NftTable} {FlowtableChain} " &
+    &"iifname {formatNftIfaceExpr(inIfaces)} " &
+    &"oifname {formatNftIfaceExpr(outIfaces)} " &
+    &"meta l4proto {{ tcp, udp }} flow add @{FlowtableName}"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc flowtableSyncCommand*(
     mainPath: string,
     privateDir: string,
@@ -139,7 +181,7 @@ proc flowtableSyncCommand*(
   ##
   ## This command intentionally has no nft side effects yet.  It verifies that
   ## configured flowtable zone directions can be resolved to currently existing
-  ## network interfaces.
+  ## network interfaces, then prints the nft commands that would be executed.
   let loaded = ?loadConfig(
     mainPath,
     privateDir,
@@ -155,6 +197,7 @@ proc flowtableSyncCommand*(
 
   echo &"flowtable-sync: loaded {normalized.flowtableRules.len} flowtable rule(s)"
   echo &"flowtable-sync: existing interfaces={{ {formatList(existingIfaces)} }}"
+  echo &"flowtable-sync: nft: flush chain {NftFamily} {NftTable} {FlowtableChain}"
 
   for index, rule in normalized.flowtableRules:
     let inIfaces = ?resolveRuleIfaces(
@@ -171,6 +214,15 @@ proc flowtableSyncCommand*(
 
     echo &"flowtable-sync: rule[{index}]: zones: in={{ {formatZones(rule.inZones)} }} out={{ {formatZones(rule.outZones)} }}"
     echo &"flowtable-sync: rule[{index}]: ifaces: iif={{ {formatList(inIfaces)} }} oif={{ {formatList(outIfaces)} }}"
+
+    if inIfaces.len == 0 or outIfaces.len == 0:
+      echo &"flowtable-sync: rule[{index}]: skipped because resolved interface set is empty"
+      continue
+
+    echo "flowtable-sync: nft: " & buildFlowAddRuleCommand(
+      inIfaces,
+      outIfaces
+    )
 
   echo "flowtable-sync: nft update is not implemented yet"
 
