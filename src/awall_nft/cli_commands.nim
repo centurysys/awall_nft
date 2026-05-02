@@ -3,6 +3,7 @@ import std/[os, strformat]
 import ./errors
 import ./load_config
 import ./nft_cmd
+import ./flowtable_sync
 import ./nft_emit
 import ./normalize
 
@@ -112,3 +113,17 @@ proc buildCheckCommand*(
   ?checkCommand(outPath).trace("buildCheckCommand.checkCommand")
 
   result = okVoid()
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc syncFlowtableCommand*(
+    mainPath: string,
+    privateDir: string,
+    servicesPath: string
+): AE[void] =
+  result = flowtableSyncCommand(
+    mainPath,
+    privateDir,
+    servicesPath
+  ).trace("syncFlowtableCommand.flowtableSyncCommand")
+

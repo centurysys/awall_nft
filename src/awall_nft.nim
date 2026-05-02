@@ -83,6 +83,34 @@ proc main() =
           not opts.noCheck
         ))
 
+    command("flowtable-sync"):
+      help("Synchronize nftables flowtable rules for existing interfaces")
+
+      option(
+        "--main",
+        default = some("/etc/awall/optional/main.json"),
+        help = "Path to awall optional/main.json"
+      )
+
+      option(
+        "--private-dir",
+        default = some("/etc/awall/private"),
+        help = "Directory containing awall private JSON files"
+      )
+
+      option(
+        "--services",
+        default = some("/usr/share/awall/mandatory/services.json"),
+        help = "Path to awall services.json"
+      )
+
+      run:
+        exitWithResult(syncFlowtableCommand(
+          opts.main,
+          opts.privateDir,
+          opts.services
+        ))
+
     command("build-check"):
       help("Generate a ruleset and immediately check it with 'nft -c -f'")
 
