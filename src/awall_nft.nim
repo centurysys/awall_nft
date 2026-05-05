@@ -83,6 +83,37 @@ proc main() =
           not opts.noCheck
         ))
 
+    command("show"):
+      help("Show normalized awall-nft configuration")
+
+      arg("topic")
+
+      option(
+        "--main",
+        default = some("/etc/awall/optional/main.json"),
+        help = "Path to awall optional/main.json"
+      )
+
+      option(
+        "--private-dir",
+        default = some("/etc/awall/private"),
+        help = "Directory containing awall private JSON files"
+      )
+
+      option(
+        "--services",
+        default = some("/usr/share/awall/mandatory/services.json"),
+        help = "Path to awall services.json"
+      )
+
+      run:
+        exitWithResult(showCommand(
+          opts.main,
+          opts.privateDir,
+          opts.services,
+          opts.topic
+        ))
+
     command("flowtable-sync"):
       help("Synchronize nftables flowtable rules for existing interfaces")
 
