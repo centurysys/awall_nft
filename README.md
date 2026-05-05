@@ -67,11 +67,13 @@ The current implementation can:
 - validate the merged configuration
 - resolve service names such as `ssh`, `dns`, and `rdp`
 - normalize wildcard-like interface names such as `br+` and `wg+`
+- allow optional zones with an empty interface list
 - generate nftables rules
 - generate explicit nftables flowtable rules for configured zone-to-zone directions
 - limit initial flowtable devices to existing exact `ethN` interfaces
 - run `nft -c -f` to check a generated ruleset
 - optionally apply a checked ruleset with `nft -f`
+- show the normalized configuration in a human-readable form
 
 The generated nftables ruleset has already been checked successfully with
 `nft -c`.
@@ -162,6 +164,38 @@ rules for the configured zones.
 
 This avoids accidentally accepting traffic on unexpected interfaces such as USB
 NICs or dynamically created interfaces.
+
+Policy order is significant, matching awall's rule ordering model.  Broad
+one-sided policies are expanded in the order they appear, and more specific
+Guest/DMZ policies should be placed before broad legacy policies when they are
+intended to restrict those zones.
+
+Example:
+
+```json
+{
+  "policy": [
+    { "in": "Guest", "out": "WAN", "action": "accept" },
+    { "in": "Guest", "out": "LAN", "action": "drop" },
+    { "in": "Guest", "out": "Closed", "action": "drop" },
+
+    { "in": "DMZ", "out": "WAN", "action": "accept" },
+    { "in": "DMZ", "out": "LAN", "action": "drop" },
+    { "in": "DMZ", "out": "Closed", "action": "drop" },
+
+    { "in": "_fw", "out": "WAN", "action": "accept" },
+    { "in": "LAN", "action": "accept" },
+    { "out": "LAN", "action": "accept" },
+    { "in": "WAN", "action": "drop" },
+    { "in": "Closed", "action": "accept" },
+    { "out": "Closed", "action": "accept" }
+  ]
+}
+```
+
+In this example, `Guest -> LAN` is dropped before the later broad
+`out=LAN accept` policy can match.  `show forward` can be used to inspect the
+effective forward policy order.
 
 ### Filter rules
 
@@ -303,7 +337,8 @@ Example:
   "flowtable": [
     { "in": "LAN", "out": "Closed" },
     { "in": "Closed", "out": "LAN" },
-    { "in": "Closed", "out": "Closed" }
+    { "in": "Closed", "out": "Closed" },
+    { "in": "Guest", "out": "WAN" }
   ]
 }
 ```
@@ -323,6 +358,8 @@ Important properties:
   not automatically create flowtable rules.
 - WAN-facing directions should be added only when the resulting fast path is
   understood and intended.
+- `Guest -> WAN` and `DMZ -> WAN` are reasonable candidates when those forward
+  policies are explicitly allowed.
 
 During normal ruleset generation, the static generator is intentionally
 conservative: only existing exact Ethernet interfaces such as `eth0` and `eth1`
@@ -471,6 +508,44 @@ awall_nft apply --no-check /tmp/awall_nft.nft
 
 Skipping the check is not recommended for normal use.
 
+### Show normalized configuration
+
+```sh
+awall_nft show all
+```
+
+`show` is read-only.  It loads and normalizes the same configuration used by
+`generate`, then prints a human-readable summary.  It does not run `nft` and does
+not modify the firewall.
+
+Available topics:
+
+```text
+all
+zones
+policies
+forward
+filters
+dnat
+snat
+clamp-mss
+flowtable
+```
+
+`show forward` is useful when broad policies and explicit Guest/DMZ policies are
+mixed.  It prints the policy order that affects FORWARD rule generation, for
+example:
+
+```text
+policy[0] Guest -> WAN  accept
+policy[1] Guest -> LAN  drop
+policy[4] LAN -> *  accept
+policy[5] * -> LAN  accept
+```
+
+`*` means that the corresponding side was omitted in the original awall-style
+policy.
+
 ### Synchronize flowtable devices
 
 ```sh
@@ -546,6 +621,7 @@ Intentional differences:
 - `conn-limit` uses nftables meter/limit instead of iptables `recent`.
 - Filter chains use `policy drop`.
 - Undefined interfaces are not trusted.
+- Zones with an empty interface list are allowed and skipped by the emitter.
 - Rules are compacted using nftables sets and prefix interface matches.
 
 Unsupported or incomplete areas:
