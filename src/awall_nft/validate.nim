@@ -60,12 +60,12 @@ proc validateDefinedZones(cfg: AwallSubsetConfig): AE[void] =
     if zoneName == ZoneFirewall:
       return failVoid(ekInvalidRule, "_fw must not be defined as a normal zone")
 
-    if zoneConfig.ifaces.len == 0:
-      return failVoid(
-        ekInvalidInterface,
-        "zone '" & $zoneName & "' has no interfaces"
-      )
-
+    # A zone with no interfaces is allowed.
+    #
+    # This is useful for predefining optional zones such as Guest or DMZ before
+    # the corresponding interface is created or assigned.  Emitters should skip
+    # rules that cannot be matched because the referenced zone has no interface
+    # conditions.
     for iface in zoneConfig.ifaces:
       if string(iface).len == 0:
         return failVoid(
