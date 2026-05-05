@@ -4,6 +4,7 @@ import ./errors
 import ./load_config
 import ./nft_cmd
 import ./flowtable_sync
+import ./show_config
 import ./nft_emit
 import ./normalize
 
@@ -127,3 +128,18 @@ proc syncFlowtableCommand*(
     servicesPath
   ).trace("syncFlowtableCommand.flowtableSyncCommand")
 
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc showCommand*(
+    mainPath: string,
+    privateDir: string,
+    servicesPath: string,
+    topic: string
+): AE[void] =
+  result = showConfigCommand(
+    mainPath,
+    privateDir,
+    servicesPath,
+    topic
+  ).trace("showCommand.showConfigCommand")

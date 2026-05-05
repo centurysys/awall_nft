@@ -207,9 +207,6 @@ proc zoneMatchConditions(
     for prefix in sortedStrings(runtime.prefixIfaces):
       conditions.add(direction & " " & q(prefix & "*"))
 
-  if conditions.len == 0:
-    conditions.add("")
-
   result = ok(conditions)
 
 # ------------------------------------------------------------------------------
