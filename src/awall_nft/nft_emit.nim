@@ -774,12 +774,54 @@ proc emitFlowtableForwardChain(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc collectForwardKnownIifMatches(cfg: NormalizedConfig): tuple[exacts: seq[string], prefixes: seq[string]] =
+  var seenExact = initTable[string, bool]()
+  var seenPrefix = initTable[string, bool]()
+
+  for _, zone in cfg.zones:
+    for iface in zone.exactIfaces:
+      let name = string(iface)
+
+      if not seenExact.hasKey(name):
+        seenExact[name] = true
+        result.exacts.add(name)
+
+    for prefix in zone.prefixIfaces:
+      if not seenPrefix.hasKey(prefix):
+        seenPrefix[prefix] = true
+        result.prefixes.add(prefix)
+
+  result.exacts = sortedStrings(result.exacts)
+  result.prefixes = sortedStrings(result.prefixes)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc emitForwardKnownIifChain(outp: var string, cfg: NormalizedConfig) =
+  let matches = collectForwardKnownIifMatches(cfg)
+
+  addLine(outp, 1, "chain forward_known_iif {")
+
+  if matches.exacts.len > 0:
+    addLine(outp, 2, "iifname " & joinQuotedSet(matches.exacts) & " return")
+
+  for prefix in matches.prefixes:
+    addLine(outp, 2, "iifname " & q(prefix & "*") & " return")
+
+  addLine(outp, 2, "drop")
+  addLine(outp, 1, "}")
+  addLine(outp, 0, "")
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc emitForwardChain(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptions): AE[void] =
   addLine(outp, 1, "chain forward {")
   addLine(outp, 2, "type filter hook forward priority filter; policy drop;")
   addLine(outp, 2, "ct state established,related accept")
   addLine(outp, 2, "jump flowtable_forward")
   emitRoutingIcmpRules(outp, "forward", opts)
+  addLine(outp, 2, "jump forward_known_iif")
 
   var index = 0
 
@@ -901,6 +943,7 @@ proc emitFilterTable(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptio
   ?emitInputChain(outp, cfg, opts)
   emitFlowtableObject(outp, flowIfaces, opts)
   ?emitFlowtableForwardChain(outp, cfg, flowIfaces, opts)
+  emitForwardKnownIifChain(outp, cfg)
   ?emitForwardChain(outp, cfg, opts)
   ?emitOutputChain(outp, cfg, opts)
   ?emitPostroutingMangleChain(outp, cfg)
