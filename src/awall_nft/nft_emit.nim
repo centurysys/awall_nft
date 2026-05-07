@@ -1,4 +1,4 @@
-import std/[algorithm, options, os, strutils, tables]
+import std/[algorithm, options, os, strformat, strutils, tables]
 
 import ./errors
 import ./types
@@ -208,6 +208,34 @@ proc zoneMatchConditions(
       conditions.add(direction & " " & q(prefix & "*"))
 
   result = ok(conditions)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc collectForwardKnownIifMatches(
+    cfg: NormalizedConfig
+): tuple[exacts: seq[string], prefixes: seq[string]] =
+  var exactSeen = initTable[string, bool]()
+  var prefixSeen = initTable[string, bool]()
+
+  result.exacts = @[]
+  result.prefixes = @[]
+
+  for _, runtime in cfg.zones:
+    for iface in runtime.exactIfaces:
+      let name = string(iface)
+
+      if not exactSeen.hasKey(name):
+        exactSeen[name] = true
+        result.exacts.add(name)
+
+    for prefix in runtime.prefixIfaces:
+      if not prefixSeen.hasKey(prefix):
+        prefixSeen[prefix] = true
+        result.prefixes.add(prefix)
+
+  result.exacts = sortedStrings(result.exacts)
+  result.prefixes = sortedStrings(result.prefixes)
 
 # ------------------------------------------------------------------------------
 #
@@ -706,17 +734,27 @@ proc zoneFlowtableIfaces(
 proc emitFlowtableForwardRule(
     outp: var string,
     seen: var Table[string, bool],
-    inIfaces: seq[string],
+    inIface: string,
     outIfaces: seq[string],
     opts: NftEmitOptions
 ) =
-  if inIfaces.len == 0 or outIfaces.len == 0:
+  if inIface.len == 0 or outIfaces.len == 0:
     return
 
-  let line =
-    "iifname " & joinQuotedSet(inIfaces) &
-    " oifname " & joinQuotedSet(outIfaces) &
-    " meta l4proto { tcp, udp } counter flow add @" & opts.flowtableName
+  var effectiveOutIfaces: seq[string] = @[]
+
+  for outIface in outIfaces:
+    if outIface == inIface:
+      continue
+
+    effectiveOutIfaces.addUniqueString(outIface)
+
+  if effectiveOutIfaces.len == 0:
+    return
+
+  let inExpr = q(inIface)
+  let outExpr = joinQuotedSet(effectiveOutIfaces)
+  let line = &"iifname {inExpr} oifname {outExpr} ct state established meta l4proto {{ tcp, udp }} counter flow add @{opts.flowtableName}"
 
   if seen.hasKey(line):
     return
@@ -745,7 +783,8 @@ proc emitFlowtableForwardRules(
     let inIfaces = ?zoneFlowtableIfaces(cfg, rule.inZones, flowIfaces)
     let outIfaces = ?zoneFlowtableIfaces(cfg, rule.outZones, flowIfaces)
 
-    emitFlowtableForwardRule(outp, seen, inIfaces, outIfaces, opts)
+    for inIface in inIfaces:
+      emitFlowtableForwardRule(outp, seen, inIface, outIfaces, opts)
 
   result = okVoid()
 
@@ -774,30 +813,7 @@ proc emitFlowtableForwardChain(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc collectForwardKnownIifMatches(cfg: NormalizedConfig): tuple[exacts: seq[string], prefixes: seq[string]] =
-  var seenExact = initTable[string, bool]()
-  var seenPrefix = initTable[string, bool]()
-
-  for _, zone in cfg.zones:
-    for iface in zone.exactIfaces:
-      let name = string(iface)
-
-      if not seenExact.hasKey(name):
-        seenExact[name] = true
-        result.exacts.add(name)
-
-    for prefix in zone.prefixIfaces:
-      if not seenPrefix.hasKey(prefix):
-        seenPrefix[prefix] = true
-        result.prefixes.add(prefix)
-
-  result.exacts = sortedStrings(result.exacts)
-  result.prefixes = sortedStrings(result.prefixes)
-
-# ------------------------------------------------------------------------------
-#
-# ------------------------------------------------------------------------------
-proc emitForwardKnownIifChain(outp: var string, cfg: NormalizedConfig) =
+proc emitForwardKnownIifChain(outp: var string, cfg: NormalizedConfig): AE[void] =
   let matches = collectForwardKnownIifMatches(cfg)
 
   addLine(outp, 1, "chain forward_known_iif {")
@@ -812,14 +828,16 @@ proc emitForwardKnownIifChain(outp: var string, cfg: NormalizedConfig) =
   addLine(outp, 1, "}")
   addLine(outp, 0, "")
 
+  result = okVoid()
+
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
 proc emitForwardChain(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptions): AE[void] =
   addLine(outp, 1, "chain forward {")
   addLine(outp, 2, "type filter hook forward priority filter; policy drop;")
-  addLine(outp, 2, "ct state established,related accept")
   addLine(outp, 2, "jump flowtable_forward")
+  addLine(outp, 2, "ct state established,related accept")
   emitRoutingIcmpRules(outp, "forward", opts)
   addLine(outp, 2, "jump forward_known_iif")
 
@@ -943,7 +961,7 @@ proc emitFilterTable(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptio
   ?emitInputChain(outp, cfg, opts)
   emitFlowtableObject(outp, flowIfaces, opts)
   ?emitFlowtableForwardChain(outp, cfg, flowIfaces, opts)
-  emitForwardKnownIifChain(outp, cfg)
+  ?emitForwardKnownIifChain(outp, cfg)
   ?emitForwardChain(outp, cfg, opts)
   ?emitOutputChain(outp, cfg, opts)
   ?emitPostroutingMangleChain(outp, cfg)

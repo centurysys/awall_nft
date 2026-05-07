@@ -177,7 +177,21 @@ proc resolveRuleIfaces(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc buildFlowAddRuleArgs(inIfaces: seq[string], outIfaces: seq[string]): seq[string] =
+proc effectiveOutIfacesForFlowAdd(inIface: string, outIfaces: seq[string]): seq[string] =
+  result = @[]
+
+  for outIface in outIfaces:
+    if outIface == inIface:
+      continue
+
+    result.addUnique(outIface)
+
+  result = sortedStrings(result)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc buildFlowAddRuleArgs(inIface: string, outIfaces: seq[string]): seq[string] =
   result = @[
     "add",
     "rule",
@@ -185,16 +199,19 @@ proc buildFlowAddRuleArgs(inIfaces: seq[string], outIfaces: seq[string]): seq[st
     NftTable,
     FlowtableChain,
     "iifname",
-    formatNftIfaceExpr(inIfaces),
+    quoteNftString(inIface),
     "oifname",
     formatNftIfaceExpr(outIfaces),
+    "ct",
+    "state",
+    "established",
     "meta",
     "l4proto",
     "{ tcp, udp }",
     "counter",
     "flow",
     "add",
-    "@" & FlowtableName
+    &"@{FlowtableName}"
   ]
 
 # ------------------------------------------------------------------------------
@@ -285,15 +302,25 @@ proc addFlowtableObject(devices: seq[string]): AE[void] =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc addFlowtableRule(inIfaces: seq[string], outIfaces: seq[string]): AE[void] =
-  discard ?runNftCommand(
-    buildFlowAddRuleArgs(
-      inIfaces,
-      outIfaces
-    )
-  ).trace("addFlowtableRule.runNftCommand")
+proc addFlowtableRules(inIfaces: seq[string], outIfaces: seq[string]): AE[int] =
+  var addedRules = 0
 
-  result = okVoid()
+  for inIface in inIfaces:
+    let effectiveOutIfaces = effectiveOutIfacesForFlowAdd(inIface, outIfaces)
+
+    if effectiveOutIfaces.len == 0:
+      continue
+
+    discard ?runNftCommand(
+      buildFlowAddRuleArgs(
+        inIface,
+        effectiveOutIfaces
+      )
+    ).trace("addFlowtableRules.runNftCommand")
+
+    addedRules.inc()
+
+  result = ok(addedRules)
 
 # ------------------------------------------------------------------------------
 #
@@ -383,12 +410,10 @@ proc flowtableSyncCommand*(
   var addedRules = 0
 
   for plan in plans:
-    ?addFlowtableRule(
+    addedRules += ?addFlowtableRules(
       plan.inIfaces,
       plan.outIfaces
-    ).trace("flowtableSyncCommand.addFlowtableRule")
-
-    addedRules.inc()
+    ).trace("flowtableSyncCommand.addFlowtableRules")
 
   if desiredDevices.len == 0:
     echo &"flowtable-sync: synced {addedRules} rule(s), skipped {skippedRules} rule(s), no devices"
