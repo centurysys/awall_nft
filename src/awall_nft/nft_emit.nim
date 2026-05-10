@@ -91,6 +91,41 @@ proc joinBareSet(values: seq[string]): string =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc nftIdentPart(s: string): string =
+  result = ""
+
+  for ch in s:
+    if ch in {'a'..'z'} or ch in {'0'..'9'}:
+      result.add(ch)
+    elif ch in {'A'..'Z'}:
+      result.add(toLowerAscii(ch))
+    else:
+      result.add('_')
+
+  if result.len == 0:
+    result = "unnamed"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc zoneIfaceSetName(zone: ZoneName): string =
+  result = &"if_{nftIdentPart(string(zone))}"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc forwardKnownIfaceSetName(): string =
+  result = "if_forward_known"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc flowtablePairSetName(): string =
+  result = "flowtable_pairs"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc joinPortSet(ports: seq[uint16]): string =
   if ports.len == 1:
     result = $ports[0]
@@ -180,7 +215,8 @@ proc zoneRuntime(cfg: NormalizedConfig, zone: ZoneName): AE[ZoneRuntime] =
 proc zoneMatchConditions(
     cfg: NormalizedConfig,
     zones: seq[ZoneName],
-    direction: string
+    direction: string,
+    useNamedSets = true
 ): AE[seq[string]] =
   var conditions: seq[string] = @[]
 
@@ -202,7 +238,10 @@ proc zoneMatchConditions(
       exacts.add(string(iface))
 
     if exacts.len > 0:
-      conditions.add(direction & " " & joinQuotedSet(exacts))
+      if useNamedSets:
+        conditions.add(&"{direction} @{zoneIfaceSetName(zone)}")
+      else:
+        conditions.add(&"{direction} {joinQuotedSet(exacts)}")
 
     for prefix in sortedStrings(runtime.prefixIfaces):
       conditions.add(direction & " " & q(prefix & "*"))
@@ -640,6 +679,57 @@ proc emitFilterRuleForChain(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc emitNamedIfaceSet(outp: var string, setName: string, ifaces: seq[string]) =
+  let sorted = sortedStrings(ifaces)
+
+  if sorted.len == 0:
+    return
+
+  var parts: seq[string] = @[]
+
+  for iface in sorted:
+    parts.add(q(iface))
+
+  let elementsText = parts.join(", ")
+
+  addLine(outp, 1, &"set {setName} {{")
+  addLine(outp, 2, "type ifname;")
+  addLine(outp, 2, &"elements = {{ {elementsText} }};")
+  addLine(outp, 1, "}")
+  addLine(outp, 0, "")
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc emitZoneIfaceSets(outp: var string, cfg: NormalizedConfig) =
+  var zoneNames: seq[ZoneName] = @[]
+
+  for zoneName, _ in cfg.zones:
+    zoneNames.add(zoneName)
+
+  zoneNames.sort(proc(a, b: ZoneName): int =
+    result = cmp(string(a), string(b))
+  )
+
+  for zoneName in zoneNames:
+    let runtime = cfg.zones[zoneName]
+    var ifaces: seq[string] = @[]
+
+    for iface in runtime.exactIfaces:
+      ifaces.add(string(iface))
+
+    emitNamedIfaceSet(outp, zoneIfaceSetName(zoneName), ifaces)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc emitForwardKnownIfaceSet(outp: var string, cfg: NormalizedConfig) =
+  let matches = collectForwardKnownIifMatches(cfg)
+  emitNamedIfaceSet(outp, forwardKnownIfaceSetName(), matches.exacts)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc emitInputChain(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptions): AE[void] =
   addLine(outp, 1, "chain input {")
   addLine(outp, 2, "type filter hook input priority filter; policy drop;")
@@ -731,36 +821,61 @@ proc zoneFlowtableIfaces(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc emitFlowtableForwardRule(
+proc collectFlowtablePairElements(
+    cfg: NormalizedConfig,
+    flowIfaces: seq[string]
+): AE[seq[string]] =
+  ## Collect exact iifname/oifname pairs that may enter the nftables flowtable.
+  ##
+  ## The flowtable section is an optimization hint, not a permission rule.
+  ## Normal policy/filter/DNAT rules must still allow the traffic. This collector
+  ## only decides which already-allowed zone directions may enter the nftables
+  ## flowtable fast path.
+  var seen = initTable[string, bool]()
+  var elements: seq[string] = @[]
+
+  for rule in cfg.flowtableRules:
+    let inIfaces = ?zoneFlowtableIfaces(cfg, rule.inZones, flowIfaces)
+    let outIfaces = ?zoneFlowtableIfaces(cfg, rule.outZones, flowIfaces)
+
+    for inIface in inIfaces:
+      for outIface in outIfaces:
+        if inIface == outIface:
+          continue
+
+        let element = &"{q(inIface)} . {q(outIface)}"
+
+        if seen.hasKey(element):
+          continue
+
+        seen[element] = true
+        elements.add(element)
+
+  result = ok(sortedStrings(elements))
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc emitFlowtablePairSet(
     outp: var string,
-    seen: var Table[string, bool],
-    inIface: string,
-    outIfaces: seq[string],
-    opts: NftEmitOptions
-) =
-  if inIface.len == 0 or outIfaces.len == 0:
+    cfg: NormalizedConfig,
+    flowIfaces: seq[string]
+): AE[void] =
+  let elements = ?collectFlowtablePairElements(cfg, flowIfaces)
+
+  if elements.len == 0:
+    result = okVoid()
     return
 
-  var effectiveOutIfaces: seq[string] = @[]
+  let elementsText = elements.join(", ")
 
-  for outIface in outIfaces:
-    if outIface == inIface:
-      continue
+  addLine(outp, 1, &"set {flowtablePairSetName()} {{")
+  addLine(outp, 2, "type ifname . ifname;")
+  addLine(outp, 2, &"elements = {{ {elementsText} }};")
+  addLine(outp, 1, "}")
+  addLine(outp, 0, "")
 
-    effectiveOutIfaces.addUniqueString(outIface)
-
-  if effectiveOutIfaces.len == 0:
-    return
-
-  let inExpr = q(inIface)
-  let outExpr = joinQuotedSet(effectiveOutIfaces)
-  let line = &"iifname {inExpr} oifname {outExpr} ct state established meta l4proto {{ tcp, udp }} counter flow add @{opts.flowtableName}"
-
-  if seen.hasKey(line):
-    return
-
-  seen[line] = true
-  addLine(outp, 2, line)
+  result = okVoid()
 
 # ------------------------------------------------------------------------------
 #
@@ -771,20 +886,17 @@ proc emitFlowtableForwardRules(
     flowIfaces: seq[string],
     opts: NftEmitOptions
 ): AE[void] =
-  ## Emit flow add rules only from the explicit awall_nft flowtable section.
-  ##
-  ## The flowtable section is an optimization hint, not a permission rule.
-  ## Normal policy/filter/DNAT rules must still allow the traffic. This emitter
-  ## only uses it to decide which already-allowed zone directions may enter the
-  ## nftables flowtable fast path.
-  var seen = initTable[string, bool]()
+  let elements = ?collectFlowtablePairElements(cfg, flowIfaces)
 
-  for rule in cfg.flowtableRules:
-    let inIfaces = ?zoneFlowtableIfaces(cfg, rule.inZones, flowIfaces)
-    let outIfaces = ?zoneFlowtableIfaces(cfg, rule.outZones, flowIfaces)
+  if elements.len == 0:
+    result = okVoid()
+    return
 
-    for inIface in inIfaces:
-      emitFlowtableForwardRule(outp, seen, inIface, outIfaces, opts)
+  addLine(
+    outp,
+    2,
+    &"iifname . oifname @{flowtablePairSetName()} ct state established meta l4proto {{ tcp, udp }} counter flow add @{opts.flowtableName}"
+  )
 
   result = okVoid()
 
@@ -819,7 +931,7 @@ proc emitForwardKnownIifChain(outp: var string, cfg: NormalizedConfig): AE[void]
   addLine(outp, 1, "chain forward_known_iif {")
 
   if matches.exacts.len > 0:
-    addLine(outp, 2, "iifname " & joinQuotedSet(matches.exacts) & " return")
+    addLine(outp, 2, &"iifname @{forwardKnownIfaceSetName()} return")
 
   for prefix in matches.prefixes:
     addLine(outp, 2, "iifname " & q(prefix & "*") & " return")
@@ -833,6 +945,53 @@ proc emitForwardKnownIifChain(outp: var string, cfg: NormalizedConfig): AE[void]
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc dnatForwardDaddrText(rule: NormalizedDnatRule, match: NormalizedServiceMatch): string =
+  let targetAddress = string(rule.toAddr)
+
+  if match.family == famInet6 or targetAddress.contains(":"):
+    result = &"ip6 daddr {targetAddress}"
+    return
+
+  result = &"ip daddr {targetAddress}"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc dnatForwardServiceText(
+    rule: NormalizedDnatRule,
+    match: NormalizedServiceMatch
+): AE[string] =
+  case match.proto
+  of protoTcp, protoUdp:
+    if rule.toPort.isSome:
+      result = ok(&"{protoText(match.proto)} dport {rule.toPort.get()}")
+      return
+
+    result = serviceMatchText(match)
+
+  else:
+    result = serviceMatchText(match)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc emitDnatForwardAcceptRules(outp: var string, cfg: NormalizedConfig): AE[void] =
+  for rule in cfg.dnats:
+    let inConds = ?zoneMatchConditions(cfg, rule.inZones, "iifname")
+
+    for baseCond in inConds:
+      for match in rule.matches:
+        let daddr = dnatForwardDaddrText(rule, match)
+        let svc = ?dnatForwardServiceText(rule, match)
+        let condition = combineConds(baseCond, combineConds("ct status dnat", daddr))
+        let line = combineConds(combineConds(condition, svc), "accept")
+        addLine(outp, 2, line)
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc emitForwardChain(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptions): AE[void] =
   addLine(outp, 1, "chain forward {")
   addLine(outp, 2, "type filter hook forward priority filter; policy drop;")
@@ -840,6 +999,7 @@ proc emitForwardChain(outp: var string, cfg: NormalizedConfig, opts: NftEmitOpti
   addLine(outp, 2, "ct state established,related accept")
   emitRoutingIcmpRules(outp, "forward", opts)
   addLine(outp, 2, "jump forward_known_iif")
+  ?emitDnatForwardAcceptRules(outp, cfg)
 
   var index = 0
 
@@ -927,7 +1087,7 @@ proc dnatToText(rule: NormalizedDnatRule): string =
 # ------------------------------------------------------------------------------
 proc emitDnatRules(outp: var string, cfg: NormalizedConfig): AE[void] =
   for rule in cfg.dnats:
-    let inConds = ?zoneMatchConditions(cfg, rule.inZones, "iifname")
+    let inConds = ?zoneMatchConditions(cfg, rule.inZones, "iifname", useNamedSets = false)
 
     for baseCond in inConds:
       for match in rule.matches:
@@ -943,7 +1103,7 @@ proc emitDnatRules(outp: var string, cfg: NormalizedConfig): AE[void] =
 # ------------------------------------------------------------------------------
 proc emitSnatRules(outp: var string, cfg: NormalizedConfig): AE[void] =
   for rule in cfg.snats:
-    let outConds = ?zoneMatchConditions(cfg, rule.outZones, "oifname")
+    let outConds = ?zoneMatchConditions(cfg, rule.outZones, "oifname", useNamedSets = false)
 
     for cond in outConds:
       let line = combineConds(cond, "masquerade")
@@ -958,6 +1118,9 @@ proc emitFilterTable(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptio
   let flowIfaces = collectFlowtableIfaces(cfg, opts)
 
   addLine(outp, 0, "table inet " & opts.inetTableName & " {")
+  emitZoneIfaceSets(outp, cfg)
+  emitForwardKnownIfaceSet(outp, cfg)
+  ?emitFlowtablePairSet(outp, cfg, flowIfaces)
   ?emitInputChain(outp, cfg, opts)
   emitFlowtableObject(outp, flowIfaces, opts)
   ?emitFlowtableForwardChain(outp, cfg, flowIfaces, opts)

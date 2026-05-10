@@ -7,9 +7,9 @@
 
     "policy": [
 	{ "in": "_fw", "out": "WAN", "action": "accept" },
+	{ "in": "WAN", "action": "drop" },
 	{ "in": "LAN", "action": "accept" },
 	{ "out": "LAN", "action": "accept" },
-	{ "in": "WAN", "action": "drop" },
 	{ "in": "Closed", "action": "accept" },
 	{ "out": "Closed", "action": "accept" }
     ],

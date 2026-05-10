@@ -10,6 +10,7 @@ const
   NftFamily = "inet"
   NftTable = "awall_nft"
   FlowtableChain = "flowtable_forward"
+  FlowtablePairSet = "flowtable_pairs"
   FlowtableName = "ft_forward"
   FlowtableHookPriority = "filter"
 
@@ -20,6 +21,10 @@ type
     outZones: seq[ZoneName]
     inIfaces: seq[string]
     outIfaces: seq[string]
+
+  FlowtableIfacePair = object
+    inIface: string
+    outIface: string
 
 # ------------------------------------------------------------------------------
 #
@@ -47,27 +52,6 @@ proc formatList(values: seq[string]): string =
 # ------------------------------------------------------------------------------
 proc quoteNftString(value: string): string =
   result = "\"" & value.replace("\\", "\\\\").replace("\"", "\\\"") & "\""
-
-# ------------------------------------------------------------------------------
-#
-# ------------------------------------------------------------------------------
-proc formatNftIfaceExpr(values: seq[string]): string =
-  let sorted = sortedStrings(values)
-
-  if sorted.len == 0:
-    result = ""
-    return
-
-  if sorted.len == 1:
-    result = quoteNftString(sorted[0])
-    return
-
-  var quoted: seq[string] = @[]
-
-  for value in sorted:
-    quoted.add(quoteNftString(value))
-
-  result = "{ " & quoted.join(", ") & " }"
 
 # ------------------------------------------------------------------------------
 #
@@ -114,13 +98,6 @@ proc addUnique(values: var seq[string], name: string) =
     return
 
   values.add(name)
-
-# ------------------------------------------------------------------------------
-#
-# ------------------------------------------------------------------------------
-proc addUniqueAll(values: var seq[string], names: seq[string]) =
-  for name in names:
-    values.addUnique(name)
 
 # ------------------------------------------------------------------------------
 #
@@ -191,7 +168,7 @@ proc effectiveOutIfacesForFlowAdd(inIface: string, outIfaces: seq[string]): seq[
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc buildFlowAddRuleArgs(inIface: string, outIfaces: seq[string]): seq[string] =
+proc buildFlowAddRuleArgs(): seq[string] =
   result = @[
     "add",
     "rule",
@@ -199,9 +176,9 @@ proc buildFlowAddRuleArgs(inIface: string, outIfaces: seq[string]): seq[string] 
     NftTable,
     FlowtableChain,
     "iifname",
-    quoteNftString(inIface),
+    ".",
     "oifname",
-    formatNftIfaceExpr(outIfaces),
+    &"@{FlowtablePairSet}",
     "ct",
     "state",
     "established",
@@ -302,25 +279,117 @@ proc addFlowtableObject(devices: seq[string]): AE[void] =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc addFlowtableRules(inIfaces: seq[string], outIfaces: seq[string]): AE[int] =
-  var addedRules = 0
+proc flowtablePairSetExists(): AE[bool] =
+  let res = runNftCommand([
+    "list",
+    "set",
+    NftFamily,
+    NftTable,
+    FlowtablePairSet
+  ])
 
-  for inIface in inIfaces:
-    let effectiveOutIfaces = effectiveOutIfacesForFlowAdd(inIface, outIfaces)
+  if res.isOk:
+    result = ok(true)
+    return
 
-    if effectiveOutIfaces.len == 0:
-      continue
+  let msg = res.error.msg
 
-    discard ?runNftCommand(
-      buildFlowAddRuleArgs(
-        inIface,
-        effectiveOutIfaces
-      )
-    ).trace("addFlowtableRules.runNftCommand")
+  if msg.contains("No such file") or msg.contains("No such file or directory"):
+    result = ok(false)
+    return
 
-    addedRules.inc()
+  result = err(res.error)
 
-  result = ok(addedRules)
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc ensureFlowtablePairSet(): AE[void] =
+  let exists = ?flowtablePairSetExists().trace("ensureFlowtablePairSet.flowtablePairSetExists")
+
+  if exists:
+    result = okVoid()
+    return
+
+  discard ?runNftCommand([
+    "add",
+    "set",
+    NftFamily,
+    NftTable,
+    FlowtablePairSet,
+    "{ type ifname . ifname; }"
+  ]).trace("ensureFlowtablePairSet.runNftCommand")
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc flushFlowtablePairSet(): AE[void] =
+  ?ensureFlowtablePairSet().trace("flushFlowtablePairSet.ensureFlowtablePairSet")
+
+  discard ?runNftCommand([
+    "flush",
+    "set",
+    NftFamily,
+    NftTable,
+    FlowtablePairSet
+  ]).trace("flushFlowtablePairSet.runNftCommand")
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc formatFlowtablePairElement(pair: FlowtableIfacePair): string =
+  result = &"{quoteNftString(pair.inIface)} . {quoteNftString(pair.outIface)}"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc buildAddFlowtablePairElementsArgs(pairs: seq[FlowtableIfacePair]): seq[string] =
+  var elements: seq[string] = @[]
+
+  for pair in pairs:
+    elements.add(formatFlowtablePairElement(pair))
+
+  let elementsText = elements.join(", ")
+
+  result = @[
+    "add",
+    "element",
+    NftFamily,
+    NftTable,
+    FlowtablePairSet,
+    &"{{ {elementsText} }}"
+  ]
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc addFlowtablePairElements(pairs: seq[FlowtableIfacePair]): AE[void] =
+  if pairs.len == 0:
+    result = okVoid()
+    return
+
+  discard ?runNftCommand(
+    buildAddFlowtablePairElementsArgs(pairs)
+  ).trace("addFlowtablePairElements.runNftCommand")
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc addFlowtableRule(pairs: seq[FlowtableIfacePair]): AE[int] =
+  if pairs.len == 0:
+    result = ok(0)
+    return
+
+  discard ?runNftCommand(
+    buildFlowAddRuleArgs()
+  ).trace("addFlowtableRule.runNftCommand")
+
+  result = ok(1)
 
 # ------------------------------------------------------------------------------
 #
@@ -362,12 +431,38 @@ proc buildRulePlans(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc collectDesiredDevices(plans: seq[FlowtableRulePlan]): seq[string] =
-  var devices: seq[string] = @[]
+proc collectFlowtablePairs(plans: seq[FlowtableRulePlan]): seq[FlowtableIfacePair] =
+  var seen = initTable[string, bool]()
 
   for plan in plans:
-    devices.addUniqueAll(plan.inIfaces)
-    devices.addUniqueAll(plan.outIfaces)
+    for inIface in plan.inIfaces:
+      let effectiveOutIfaces = effectiveOutIfacesForFlowAdd(inIface, plan.outIfaces)
+
+      for outIface in effectiveOutIfaces:
+        let key = &"{inIface}>{outIface}"
+
+        if seen.hasKey(key):
+          continue
+
+        seen[key] = true
+        result.add(FlowtableIfacePair(
+          inIface: inIface,
+          outIface: outIface
+        ))
+
+  result.sort(proc(a, b: FlowtableIfacePair): int =
+    result = cmp(formatFlowtablePairElement(a), formatFlowtablePairElement(b))
+  )
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc collectDesiredDevices(pairs: seq[FlowtableIfacePair]): seq[string] =
+  var devices: seq[string] = @[]
+
+  for pair in pairs:
+    devices.addUnique(pair.inIface)
+    devices.addUnique(pair.outIface)
 
   result = sortedStrings(devices)
 
@@ -401,19 +496,16 @@ proc flowtableSyncCommand*(
     existingIfaces
   ).trace("flowtableSyncCommand.buildRulePlans")
 
-  let desiredDevices = collectDesiredDevices(plans)
+  let pairs = collectFlowtablePairs(plans)
+  let desiredDevices = collectDesiredDevices(pairs)
 
   ?flushFlowtableForwardChain().trace("flowtableSyncCommand.flushFlowtableForwardChain")
+  ?flushFlowtablePairSet().trace("flowtableSyncCommand.flushFlowtablePairSet")
+  ?addFlowtablePairElements(pairs).trace("flowtableSyncCommand.addFlowtablePairElements")
   ?deleteFlowtableObject().trace("flowtableSyncCommand.deleteFlowtableObject")
   ?addFlowtableObject(desiredDevices).trace("flowtableSyncCommand.addFlowtableObject")
 
-  var addedRules = 0
-
-  for plan in plans:
-    addedRules += ?addFlowtableRules(
-      plan.inIfaces,
-      plan.outIfaces
-    ).trace("flowtableSyncCommand.addFlowtableRules")
+  let addedRules = ?addFlowtableRule(pairs).trace("flowtableSyncCommand.addFlowtableRule")
 
   if desiredDevices.len == 0:
     echo &"flowtable-sync: synced {addedRules} rule(s), skipped {skippedRules} rule(s), no devices"
