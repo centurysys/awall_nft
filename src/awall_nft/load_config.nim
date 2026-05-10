@@ -102,9 +102,52 @@ proc loadImportedConfigs*(
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc loadServiceDb*(servicesPath: string): AE[ServiceDb] =
-  let catalog = ?parseServiceCatalogDto(servicesPath).trace("loadServiceDb.parseServiceCatalogDto")
-  result = buildServiceDb(catalog).trace("loadServiceDb.buildServiceDb")
+proc defaultServicePaths*(
+    servicesPath: string,
+    privateDir: string
+): seq[string] =
+  var paths: seq[string] = @[]
+
+  proc addUnique(path: string) =
+    if path.len == 0:
+      return
+
+    if path notin paths:
+      paths.add(path)
+
+  addUnique(servicesPath)
+  addUnique("/etc/awall/mandatory/services.json")
+  addUnique(privateDir / "services.json")
+
+  result = paths
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc loadServiceDb*(
+    servicesPath: string,
+    privateDir: string
+): AE[ServiceDb] =
+  let paths = defaultServicePaths(servicesPath, privateDir)
+  var db = initTable[ServiceName, seq[ServiceAtom]]()
+  var loadedCount = 0
+
+  for path in paths:
+    if not fileExists(path):
+      continue
+
+    let catalog = ?parseServiceCatalogDto(path).trace("loadServiceDb.parseServiceCatalogDto")
+    let sourceDb = ?buildServiceDb(catalog).trace("loadServiceDb.buildServiceDb")
+    mergeServiceDb(db, sourceDb)
+    inc(loadedCount)
+
+  if loadedCount == 0:
+    return fail[ServiceDb](
+      ekIO,
+      &"no services.json found; checked {serviceDbSourceSummary(paths)}"
+    )
+
+  result = ok(db)
 
 # ------------------------------------------------------------------------------
 #
@@ -116,7 +159,7 @@ proc loadConfig*(
 ): AE[LoadedConfig] =
   let main = ?parseMainDto(mainPath).trace("loadConfig.parseMainDto")
   let cfg = ?loadImportedConfigs(main, privateDir).trace("loadConfig.loadImportedConfigs")
-  let serviceDb = ?loadServiceDb(servicesPath).trace("loadConfig.loadServiceDb")
+  let serviceDb = ?loadServiceDb(servicesPath, privateDir).trace("loadConfig.loadServiceDb")
 
   result = ok(LoadedConfig(
     main: main,

@@ -1,3 +1,5 @@
+import std/strformat
+
 import ./errors
 import ./types
 
@@ -58,24 +60,35 @@ proc validateServiceEntries(
 #
 # ------------------------------------------------------------------------------
 proc buildServiceDb*(catalog: ServiceCatalogDto): AE[ServiceDb] =
-  result = ok(initTable[ServiceName, seq[ServiceAtom]]())
-
   var db = initTable[ServiceName, seq[ServiceAtom]]()
 
   for name, entries in catalog.service:
     ?validateServiceEntries(name, entries).trace("buildServiceDb.validateServiceEntries")
-
-    let serviceName = ServiceName(name)
-
-    if db.hasKey(serviceName):
-      return fail[ServiceDb](
-        ekUnknownService,
-        "duplicated service name: " & name
-      )
-
-    db[serviceName] = entries.items
+    db[ServiceName(name)] = entries.items
 
   result = ok(db)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc mergeServiceDb*(
+    dst: var ServiceDb,
+    src: ServiceDb
+) =
+  for name, atoms in src:
+    dst[name] = atoms
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc serviceDbSourceSummary*(paths: openArray[string]): string =
+  result = ""
+
+  for path in paths:
+    if result.len > 0:
+      result.add(", ")
+
+    result.add(&"'{path}'")
 
 # ------------------------------------------------------------------------------
 #
