@@ -248,6 +248,22 @@ policyの順序は意味を持ちます。本家awallと同様に、広い片側
 
 inline service定義と、名前付きserviceの両方に対応しています。
 
+DNAT ルールを設定した場合、変換後の宛先に対応する FORWARD chain の
+accept ルールも生成します。この accept ルールは、`in=WAN drop` や
+`out=LAN accept` のような広い policy 由来ルールより前に出力されます。
+
+生成される FORWARD ルールは、`ct status dnat` と変換後の宛先アドレス・
+サービスポートに一致します。そのため、PREROUTING で明示的に DNAT
+された通信だけを許可できます。これにより、公開サービスは通しつつ、
+WAN から LAN への一般的な forward は broad な `out=LAN accept` に到達する
+前に drop できます。
+
+生成例:
+
+```nft
+iifname @if_wan ct status dnat ip daddr 10.0.3.10 tcp dport 22 accept
+```
+
 ### SNAT / masquerade
 
 現在対応しているSNATは、実用上よく使うmasquerade形式です。
@@ -378,15 +394,21 @@ flowtable ft_forward {
   devices = { eth0, eth1 };
 }
 
+set flowtable_pairs {
+  type ifname . ifname;
+  elements = { "eth0" . "eth1", "eth1" . "eth0" };
+}
+
 chain flowtable_forward {
-  iifname "eth0" oifname "eth1" meta l4proto { tcp, udp } flow add @ft_forward
-  iifname "eth1" oifname "eth0" meta l4proto { tcp, udp } flow add @ft_forward
+  iifname . oifname @flowtable_pairs ct state established meta l4proto { tcp, udp } counter flow add @ft_forward
   # awall_nft flowtable-sync may replace this chain
 }
 ```
 
-生成される `forward` chain は、established/related通信をacceptしたあと、
-通常のforward ruleより前に `flowtable_forward` へjumpします。
+生成される `forward` chain は、`ct state established,related accept` より前に
+`flowtable_forward` へjumpします。ただし flowtable rule 自体は
+`ct state established` にだけ一致するため、新規packetは通常のpolicy pathを
+通り、その後の同じflowのpacketがflowtableへ追加されます。
 
 ### Connection limiting
 
@@ -445,6 +467,42 @@ flowtable objectを更新できます。
 
 NAT tableは現時点ではIPv4専用です。現在の用途がIPv4 DNAT/SNAT masquerade
 であるためです。
+
+### named nftables set
+
+`awall-nft` は、exact interface group を named nftables set として生成します。
+これにより、各ルールに anonymous な interface list を繰り返し出す代わりに、
+`@if_lan`, `@if_wan`, `@if_dmz`, `@if_closed` のような意味のある名前で
+参照でき、生成rulesetが読みやすくなります。
+
+例:
+
+```nft
+set if_lan {
+  type ifname;
+  elements = { "br0", "eth0", "ppp100" };
+}
+
+set if_wan {
+  type ifname;
+  elements = { "eth1", "eth2", "ppp0", "ppp10", "wlan0", "wwan0" };
+}
+
+chain forward {
+  iifname @if_wan drop
+  iifname @if_lan accept
+  oifname @if_lan accept
+}
+```
+
+`forward_known_iif` も exact interface 用の named set を使います。flowtable の
+対象方向も、`iifname . oifname` の組を持つ `flowtable_pairs` set として
+生成します。`wg+` のような prefix match は exact interface set には入れず、
+従来どおり `iifname "wg*" accept` のような明示ルールとして生成します。
+
+IPv4 NAT rule は意図的に anonymous set のままにしています。nftables の named
+set は table ごとのスコープを持つため、`inet awall_nft` table に定義した
+set を `ip awall_nft_nat` table から参照できないためです。
 
 ## CLI
 

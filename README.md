@@ -248,6 +248,22 @@ Example:
 
 Both inline service definitions and named services are supported.
 
+DNAT rules also generate matching forward-chain accept rules for the translated
+destination. These accept rules are emitted before broad policy-derived rules
+such as `in=WAN drop` and `out=LAN accept`.
+
+The generated forward rules match `ct status dnat` plus the translated
+destination address and service port, so only packets explicitly translated by
+the DNAT rule are accepted. This allows published services to keep working while
+general WAN-to-LAN forwarding can still be dropped before broad output-side
+policies match.
+
+Example generated forward rule:
+
+```nft
+iifname @if_wan ct status dnat ip daddr 10.0.3.10 tcp dport 22 accept
+```
+
 ### SNAT / masquerade
 
 The current supported SNAT form is the practical masquerade form:
@@ -381,15 +397,21 @@ flowtable ft_forward {
   devices = { eth0, eth1 };
 }
 
+set flowtable_pairs {
+  type ifname . ifname;
+  elements = { "eth0" . "eth1", "eth1" . "eth0" };
+}
+
 chain flowtable_forward {
-  iifname "eth0" oifname "eth1" meta l4proto { tcp, udp } flow add @ft_forward
-  iifname "eth1" oifname "eth0" meta l4proto { tcp, udp } flow add @ft_forward
+  iifname . oifname @flowtable_pairs ct state established meta l4proto { tcp, udp } counter flow add @ft_forward
   # awall_nft flowtable-sync may replace this chain
 }
 ```
 
-The generated `forward` chain jumps to `flowtable_forward` after accepting
-established/related traffic and before the normal forward rules.
+The generated `forward` chain jumps to `flowtable_forward` before the
+`ct state established,related accept` rule. The flowtable rule itself matches
+only `ct state established`, so new packets still pass through the normal policy
+path before a later packet from the same flow can be added to the flowtable.
 
 ### Connection limiting
 
@@ -449,6 +471,43 @@ ruleset.
 
 The NAT table is IPv4-only at the moment because the current use case is IPv4
 DNAT/SNAT masquerade.
+
+### Named nftables sets
+
+`awall-nft` emits named nftables sets for exact interface groups. This makes the
+generated ruleset easier to read because rules refer to semantic groups such as
+`@if_lan`, `@if_wan`, `@if_dmz`, and `@if_closed` instead of repeating anonymous
+interface lists in every rule.
+
+Example:
+
+```nft
+set if_lan {
+  type ifname;
+  elements = { "br0", "eth0", "ppp100" };
+}
+
+set if_wan {
+  type ifname;
+  elements = { "eth1", "eth2", "ppp0", "ppp10", "wlan0", "wwan0" };
+}
+
+chain forward {
+  iifname @if_wan drop
+  iifname @if_lan accept
+  oifname @if_lan accept
+}
+```
+
+`forward_known_iif` also uses a named set for exact interfaces, and flowtable
+directions are emitted through a named `flowtable_pairs` set of `iifname .
+oifname` pairs. Prefix interface matches such as `wg+` are still emitted as
+explicit wildcard rules, for example `iifname "wg*" accept`, because they are
+not exact interface set elements.
+
+IPv4 NAT rules intentionally keep using anonymous sets. nftables named sets are
+scoped to their table, and the `ip awall_nft_nat` table cannot reference sets
+defined in the `inet awall_nft` table.
 
 ## CLI
 
