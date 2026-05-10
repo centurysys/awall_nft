@@ -833,6 +833,78 @@ proc emitForwardKnownIifChain(outp: var string, cfg: NormalizedConfig): AE[void]
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc dnatForwardDaddrText(rule: NormalizedDnatRule, match: NormalizedServiceMatch): string =
+  let targetAddr = string(rule.toAddr)
+
+  if match.family == famInet6 or targetAddr.contains(":"):
+    result = &"ip6 daddr {targetAddr}"
+    return
+
+  result = &"ip daddr {targetAddr}"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc dnatForwardServiceText(
+    rule: NormalizedDnatRule,
+    match: NormalizedServiceMatch
+): AE[string] =
+  case match.proto
+  of protoTcp, protoUdp:
+    var ports: seq[uint16] = @[]
+
+    if rule.toPort.isSome:
+      ports.add(rule.toPort.get())
+    else:
+      ports = match.ports
+
+    if ports.len == 0:
+      return fail[string](
+        ekInvalidRule,
+        $match.proto & " DNAT forward accept requires at least one port"
+      )
+
+    result = ok(&"{protoText(match.proto)} dport {joinPortSet(ports)}")
+
+  of protoIcmp, protoIcmpv6, protoEsp, protoGre, protoOspf, protoIgmp:
+    result = serviceMatchText(match)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc emitDnatForwardAcceptRules(outp: var string, cfg: NormalizedConfig): AE[void] =
+  ## Allow explicitly DNATed forwarded packets before broad policy rules.
+  ##
+  ## DNAT is performed in prerouting, before the forward chain.  These rules
+  ## match the translated destination address and port, and also require
+  ## `ct status dnat` so packets that directly target the internal address are
+  ## not accepted merely because they look like a DNAT destination.
+  var seen = initTable[string, bool]()
+
+  for rule in cfg.dnats:
+    let inConds = ?zoneMatchConditions(cfg, rule.inZones, "iifname")
+
+    for baseCond in inConds:
+      for match in rule.matches:
+        let daddr = dnatForwardDaddrText(rule, match)
+        let svc = ?dnatForwardServiceText(rule, match)
+        let condition = combineConds(
+          combineConds(combineConds(baseCond, "ct status dnat"), daddr),
+          svc
+        )
+        let line = combineConds(condition, "accept")
+
+        if seen.hasKey(line):
+          continue
+
+        seen[line] = true
+        addLine(outp, 2, line)
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc emitForwardChain(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptions): AE[void] =
   addLine(outp, 1, "chain forward {")
   addLine(outp, 2, "type filter hook forward priority filter; policy drop;")
@@ -840,6 +912,7 @@ proc emitForwardChain(outp: var string, cfg: NormalizedConfig, opts: NftEmitOpti
   addLine(outp, 2, "ct state established,related accept")
   emitRoutingIcmpRules(outp, "forward", opts)
   addLine(outp, 2, "jump forward_known_iif")
+  ?emitDnatForwardAcceptRules(outp, cfg)
 
   var index = 0
 
