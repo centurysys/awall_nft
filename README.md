@@ -1,11 +1,91 @@
 # awall-nft
 
-`awall-nft` is a lightweight generator that converts a small, practical subset of
-Alpine Wall (awall)-style JSON configuration into native nftables rules.
+`awall-nft` is a small nftables tool for Linux routers.
 
-It is designed for embedded Linux gateways and router-like products where writing
-iptables/nftables rules by hand is error-prone, while larger firewall managers can
-be too heavy or too dynamic for the target system.
+Its main feature is **dynamic nftables flowtable synchronization** for runtime
+interfaces such as PPP, WireGuard, bridges, LTE/WWAN, and product-specific
+virtual links.
+
+It also includes an awall-style JSON to nftables generator. That generator is
+useful, but it is not the only reason this project exists. The `flowtable-sync`
+subcommand can be useful even if you do not use Alpine Linux or awall JSON as
+your firewall configuration format.
+
+## Main feature: dynamic flowtable synchronization
+
+Linux routers often use nftables flowtables to reduce forwarding overhead. The
+hard part is not the initial static ruleset. The hard part is keeping the
+flowtable device list correct when interfaces appear or disappear at runtime.
+
+Typical examples are:
+
+- PPP interfaces created by `pppd`
+- WireGuard interfaces created by `wg-quick` or another interface manager
+- bridge interfaces and bridge members
+- LTE/WWAN interfaces
+- virtual interfaces created by containers or product-specific services
+
+Many router stacks handle this by regenerating or reloading the whole firewall
+when interface state changes. `awall-nft flowtable-sync` takes a narrower
+approach.
+
+It updates only the flowtable-related objects:
+
+1. read the current configuration
+2. resolve configured flowtable directions to currently existing interfaces
+3. flush the dedicated `flowtable_forward` chain
+4. delete and recreate the `ft_forward` flowtable object with the current device set
+5. re-add only the `flow add @ft_forward` rules
+
+It does **not** flush, regenerate, or reapply the whole firewall ruleset.
+
+This makes it suitable for hooks such as:
+
+```sh
+# /etc/ppp/ip-up.d/awall-nft-flowtable
+# /etc/ppp/ip-down.d/awall-nft-flowtable
+#!/bin/sh
+/usr/local/sbin/awall_nft flowtable-sync || true
+```
+
+or WireGuard:
+
+```ini
+PostUp = /usr/local/sbin/awall_nft flowtable-sync || true
+PostDown = /usr/local/sbin/awall_nft flowtable-sync || true
+```
+
+Normal output is intentionally compact:
+
+```text
+flowtable-sync: synced 1 rule(s), skipped 2 rule(s), devices: eth0, eth1, wlisc
+```
+
+## Why router engineers may care
+
+If you are working on OpenWrt, firewall4, a custom Linux router, or an embedded
+gateway, the interesting part of this project may be the **procedure** used by
+`flowtable-sync`.
+
+The key idea is to keep a stable insertion point for flow-offload rules and to
+replace only the flowtable object and its companion chain. This avoids the broad
+side effects of a full firewall reload while still allowing the flowtable device
+set to follow runtime-created interfaces.
+
+This project does not claim to replace OpenWrt firewall4. It documents and
+implements a minimal nftables transaction sequence for one specific problem:
+
+> keeping nftables flowtable devices synchronized with dynamic router interfaces
+> without reloading the whole firewall.
+
+## Secondary feature: awall-style nftables generation
+
+The same binary can also generate a native nftables ruleset from a small,
+practical subset of Alpine Wall (awall)-style JSON configuration.
+
+This generator is intended for embedded Linux gateways and router-like products
+where writing iptables/nftables rules by hand is error-prone, while larger
+firewall managers can be too heavy or too dynamic for the target system.
 
 The project is intentionally not a full awall reimplementation. It focuses on the
 subset that is useful for the current product use case:
@@ -23,7 +103,7 @@ subset that is useful for the current product use case:
 
 The generated ruleset can be checked with `nft -c -f` before applying it.
 
-## Motivation
+## Generator motivation
 
 The original system uses awall JSON as a declarative firewall configuration layer.
 awall then generates iptables rules.
@@ -248,22 +328,6 @@ Example:
 
 Both inline service definitions and named services are supported.
 
-DNAT rules also generate matching forward-chain accept rules for the translated
-destination. These accept rules are emitted before broad policy-derived rules
-such as `in=WAN drop` and `out=LAN accept`.
-
-The generated forward rules match `ct status dnat` plus the translated
-destination address and service port, so only packets explicitly translated by
-the DNAT rule are accepted. This allows published services to keep working while
-general WAN-to-LAN forwarding can still be dropped before broad output-side
-policies match.
-
-Example generated forward rule:
-
-```nft
-iifname @if_wan ct status dnat ip daddr 10.0.3.10 tcp dport 22 accept
-```
-
 ### SNAT / masquerade
 
 The current supported SNAT form is the practical masquerade form:
@@ -397,21 +461,15 @@ flowtable ft_forward {
   devices = { eth0, eth1 };
 }
 
-set flowtable_pairs {
-  type ifname . ifname;
-  elements = { "eth0" . "eth1", "eth1" . "eth0" };
-}
-
 chain flowtable_forward {
-  iifname . oifname @flowtable_pairs ct state established meta l4proto { tcp, udp } counter flow add @ft_forward
+  iifname "eth0" oifname "eth1" meta l4proto { tcp, udp } flow add @ft_forward
+  iifname "eth1" oifname "eth0" meta l4proto { tcp, udp } flow add @ft_forward
   # awall_nft flowtable-sync may replace this chain
 }
 ```
 
-The generated `forward` chain jumps to `flowtable_forward` before the
-`ct state established,related accept` rule. The flowtable rule itself matches
-only `ct state established`, so new packets still pass through the normal policy
-path before a later packet from the same flow can be added to the flowtable.
+The generated `forward` chain jumps to `flowtable_forward` after accepting
+established/related traffic and before the normal forward rules.
 
 ### Connection limiting
 
@@ -471,43 +529,6 @@ ruleset.
 
 The NAT table is IPv4-only at the moment because the current use case is IPv4
 DNAT/SNAT masquerade.
-
-### Named nftables sets
-
-`awall-nft` emits named nftables sets for exact interface groups. This makes the
-generated ruleset easier to read because rules refer to semantic groups such as
-`@if_lan`, `@if_wan`, `@if_dmz`, and `@if_closed` instead of repeating anonymous
-interface lists in every rule.
-
-Example:
-
-```nft
-set if_lan {
-  type ifname;
-  elements = { "br0", "eth0", "ppp100" };
-}
-
-set if_wan {
-  type ifname;
-  elements = { "eth1", "eth2", "ppp0", "ppp10", "wlan0", "wwan0" };
-}
-
-chain forward {
-  iifname @if_wan drop
-  iifname @if_lan accept
-  oifname @if_lan accept
-}
-```
-
-`forward_known_iif` also uses a named set for exact interfaces, and flowtable
-directions are emitted through a named `flowtable_pairs` set of `iifname .
-oifname` pairs. Prefix interface matches such as `wg+` are still emitted as
-explicit wildcard rules, for example `iifname "wg*" accept`, because they are
-not exact interface set elements.
-
-IPv4 NAT rules intentionally keep using anonymous sets. nftables named sets are
-scoped to their table, and the `ip awall_nft_nat` table cannot reference sets
-defined in the `inet awall_nft` table.
 
 ## CLI
 
