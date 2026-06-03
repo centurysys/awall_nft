@@ -1,9 +1,9 @@
 import std/[algorithm, os, strformat, strutils, tables]
-
 import ./errors
 import ./load_config
 import ./nft_cmd
 import ./normalize
+import ./process_lock
 import ./types
 
 const
@@ -13,6 +13,7 @@ const
   FlowtablePairSet = "flowtable_pairs"
   FlowtableName = "ft_forward"
   FlowtableHookPriority = "filter"
+  FlowtableSyncLockPath = "/run/lock/awall_nft/flowtable-sync.lock"
 
 type
   FlowtableRulePlan = object
@@ -40,7 +41,6 @@ proc sortedStrings(values: seq[string]): seq[string] =
 # ------------------------------------------------------------------------------
 proc formatList(values: seq[string]): string =
   let sorted = sortedStrings(values)
-
   if sorted.len == 0:
     result = ""
     return
@@ -58,7 +58,6 @@ proc quoteNftString(value: string): string =
 # ------------------------------------------------------------------------------
 proc formatFlowtableDevicesExpr(values: seq[string]): string =
   let sorted = sortedStrings(values)
-
   result = "{ " & sorted.join(", ") & " }"
 
 # ------------------------------------------------------------------------------
@@ -66,7 +65,6 @@ proc formatFlowtableDevicesExpr(values: seq[string]): string =
 # ------------------------------------------------------------------------------
 proc collectExistingNetIfaces(): seq[string] =
   let sysNetPath = "/sys/class/net"
-
   if not dirExists(sysNetPath):
     return @[]
 
@@ -103,9 +101,9 @@ proc addUnique(values: var seq[string], name: string) =
 #
 # ------------------------------------------------------------------------------
 proc resolveZoneIfaces(
-    cfg: NormalizedConfig,
-    zoneName: ZoneName,
-    existingIfaces: seq[string]
+  cfg: NormalizedConfig,
+  zoneName: ZoneName,
+  existingIfaces: seq[string]
 ): AE[seq[string]] =
   if not cfg.zones.hasKey(zoneName):
     return fail[seq[string]](
@@ -118,7 +116,6 @@ proc resolveZoneIfaces(
 
   for iface in zone.exactIfaces:
     let name = string(iface)
-
     if existingIfaces.containsName(name):
       ifaces.addUnique(name)
 
@@ -133,9 +130,9 @@ proc resolveZoneIfaces(
 #
 # ------------------------------------------------------------------------------
 proc resolveRuleIfaces(
-    cfg: NormalizedConfig,
-    zones: seq[ZoneName],
-    existingIfaces: seq[string]
+  cfg: NormalizedConfig,
+  zones: seq[ZoneName],
+  existingIfaces: seq[string]
 ): AE[seq[string]] =
   var ifaces: seq[string] = @[]
 
@@ -221,7 +218,6 @@ proc flowtableObjectExists(): AE[bool] =
     return
 
   let msg = res.error.msg
-
   if msg.contains("No such file") or msg.contains("No such file or directory"):
     result = ok(false)
     return
@@ -247,7 +243,6 @@ proc flushFlowtableForwardChain(): AE[void] =
 # ------------------------------------------------------------------------------
 proc deleteFlowtableObject(): AE[void] =
   let exists = ?flowtableObjectExists().trace("deleteFlowtableObject.flowtableObjectExists")
-
   if not exists:
     result = okVoid()
     return
@@ -293,7 +288,6 @@ proc flowtablePairSetExists(): AE[bool] =
     return
 
   let msg = res.error.msg
-
   if msg.contains("No such file") or msg.contains("No such file or directory"):
     result = ok(false)
     return
@@ -305,7 +299,6 @@ proc flowtablePairSetExists(): AE[bool] =
 # ------------------------------------------------------------------------------
 proc ensureFlowtablePairSet(): AE[void] =
   let exists = ?flowtablePairSetExists().trace("ensureFlowtablePairSet.flowtablePairSetExists")
-
   if exists:
     result = okVoid()
     return
@@ -395,8 +388,8 @@ proc addFlowtableRule(pairs: seq[FlowtableIfacePair]): AE[int] =
 #
 # ------------------------------------------------------------------------------
 proc buildRulePlans(
-    cfg: NormalizedConfig,
-    existingIfaces: seq[string]
+  cfg: NormalizedConfig,
+  existingIfaces: seq[string]
 ): AE[(seq[FlowtableRulePlan], int)] =
   var plans: seq[FlowtableRulePlan] = @[]
   var skippedRules = 0
@@ -440,7 +433,6 @@ proc collectFlowtablePairs(plans: seq[FlowtableRulePlan]): seq[FlowtableIfacePai
 
       for outIface in effectiveOutIfaces:
         let key = &"{inIface}>{outIface}"
-
         if seen.hasKey(key):
           continue
 
@@ -469,10 +461,10 @@ proc collectDesiredDevices(pairs: seq[FlowtableIfacePair]): seq[string] =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc flowtableSyncCommand*(
-    mainPath: string,
-    privateDir: string,
-    servicesPath: string
+proc flowtableSyncCommandImpl(
+  mainPath: string,
+  privateDir: string,
+  servicesPath: string
 ): AE[void] =
   ## Synchronize the flowtable_forward chain and ft_forward object.
   ##
@@ -491,6 +483,7 @@ proc flowtableSyncCommand*(
   ).trace("flowtableSyncCommand.normalizeConfig")
 
   let existingIfaces = collectExistingNetIfaces()
+
   let (plans, skippedRules) = ?buildRulePlans(
     normalized,
     existingIfaces
@@ -513,3 +506,25 @@ proc flowtableSyncCommand*(
     echo &"flowtable-sync: synced {addedRules} rule(s), skipped {skippedRules} rule(s), devices: {formatList(desiredDevices)}"
 
   result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc logFlowtableSyncLockWait(path: string) =
+  echo "flowtable-sync: another instance is running, waiting for lock: " & path
+
+proc logFlowtableSyncLockAcquiredAfterWait(path: string) =
+  echo "flowtable-sync: acquired lock after waiting: " & path
+
+proc flowtableSyncCommand*(
+  mainPath: string,
+  privateDir: string,
+  servicesPath: string
+): AE[void] =
+  result = withProcessLock(
+    FlowtableSyncLockPath,
+    proc(): AE[void] =
+      result = flowtableSyncCommandImpl(mainPath, privateDir, servicesPath),
+    onWait = logFlowtableSyncLockWait,
+    onAcquiredAfterWait = logFlowtableSyncLockAcquiredAfterWait
+  )

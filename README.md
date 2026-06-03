@@ -663,6 +663,12 @@ Normal output is intentionally compact:
 flowtable-sync: synced 1 rule(s), skipped 2 rule(s), devices: eth0, eth1, wlisc
 ```
 
+`flowtable-sync` is serialized with a process-level lock under
+`/run/lock/awall_nft/`. It is safe to call it from multiple interface or
+boot-time hooks; concurrent invocations wait for the running instance instead of
+updating nftables in parallel. When this happens, `flowtable-sync` logs that it
+is waiting for the lock and logs again after the lock has been acquired.
+
 Rules whose input or output side resolves to no existing interface are skipped.
 
 ## Build
