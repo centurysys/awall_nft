@@ -44,6 +44,17 @@ proc formatZones(zones: seq[ZoneName]): string =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc formatAddresses(addrs: seq[IpAddress]): string =
+  var parts: seq[string] = @[]
+
+  for addr in addrs:
+    parts.add($addr)
+
+  result = joinOrDash(parts)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc formatRawPolicySide(label: string, zones: seq[ZoneName]): string =
   if zones.len == 0:
     result = ""
@@ -305,7 +316,12 @@ proc showDnat(outp: var string, cfg: NormalizedConfig) =
     return
 
   for index, dnat in cfg.dnats:
-    outp.add(&"[{index}] in={formatZones(dnat.inZones)} to={dnat.toAddr}")
+    outp.add(&"[{index}] in={formatZones(dnat.inZones)}")
+
+    if dnat.srcAddrs.len > 0:
+      outp.add(&" src={formatAddresses(dnat.srcAddrs)}")
+
+    outp.add(&" to={dnat.toAddr}")
 
     if dnat.toPort.isSome:
       outp.add(&":{dnat.toPort.get()}")

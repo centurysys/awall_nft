@@ -140,6 +140,7 @@ proc normalizeDnats(
 
     let rule = NormalizedDnatRule(
       inZones: dnat.inZones,
+      srcAddrs: dnat.srcAddrs,
       matches: matches,
       toAddr: dnat.toAddr,
       toPort: dnat.toPort,

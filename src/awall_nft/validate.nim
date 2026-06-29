@@ -1,4 +1,4 @@
-import std/options
+import std/[options, strutils]
 
 import ./errors
 import ./types
@@ -106,6 +106,31 @@ proc validateServiceAtom(atom: ServiceAtom, where: string): AE[void] =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc validateIpAddressList(addrs: seq[IpAddress], where: string): AE[void] =
+  var index = 0
+
+  for addr in addrs:
+    let text = string(addr)
+
+    if text.len == 0:
+      return failVoid(
+        ekInvalidRule,
+        where & "[" & $index & "]: address must not be empty"
+      )
+
+    if text.contains(":"):
+      return failVoid(
+        ekUnsupported,
+        where & "[" & $index & "]: IPv6 address is not supported by the IPv4 NAT backend"
+      )
+
+    inc(index)
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc validateServiceSpec(service: ServiceSpec, where: string): AE[void] =
   case service.kind
   of sskNone:
@@ -194,6 +219,7 @@ proc validateDnats(cfg: AwallSubsetConfig): AE[void] =
     let where = "dnat[" & $index & "]"
 
     ?validateZoneRefs(cfg, dnat.inZones, where & ".in")
+    ?validateIpAddressList(dnat.srcAddrs, where & ".src")
     ?validateServiceSpec(dnat.service, where & ".service")
 
     if dnat.inZones.len == 0:

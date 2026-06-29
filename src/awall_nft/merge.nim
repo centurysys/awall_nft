@@ -14,6 +14,15 @@ proc toZoneNames(zones: ZoneList): seq[ZoneName] =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc toIpAddresses(addrs: AddressList): seq[IpAddress] =
+  result = @[]
+
+  for addr in addrs.items:
+    result.add(IpAddress(addr))
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc toInterfaces(ifaces: InterfaceList): seq[InterfaceName] =
   result = @[]
 
@@ -86,6 +95,7 @@ proc mergeDnats(dst: var AwallSubsetConfig, dnats: seq[DnatDto]): AE[void] =
 
     let rule = DnatRule(
       inZones: toZoneNames(dnat.inZones),
+      srcAddrs: toIpAddresses(dnat.srcAddrs),
       service: dnat.service,
       toAddr: IpAddress(dnat.toAddr),
       toPort: dnat.toPort,

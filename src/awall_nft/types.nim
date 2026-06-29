@@ -33,6 +33,13 @@ type
   InterfaceName* = distinct string
   IpAddress* = distinct string
 
+  AddressList* = object
+    ## DTO-only helper.
+    ##
+    ## Accepts the awall-compatible address form where a field can be either
+    ## a single string or an array of strings.
+    items*: seq[string]
+
   PortList* = object
     items*: seq[uint16]
 
@@ -100,6 +107,7 @@ type
 
   DnatDto* = object
     inZones* {.json: "in,omitempty".}: ZoneList
+    srcAddrs* {.json: "src,omitempty".}: AddressList
     service* {.json: ",required".}: ServiceSpec
     toAddr* {.json: "to-addr,required".}: string
     toPort* {.json: "to-port,omitempty".}: Option[uint16]
@@ -157,6 +165,7 @@ type
 
   DnatRule* = object
     inZones*: seq[ZoneName]
+    srcAddrs*: seq[IpAddress]
     service*: ServiceSpec
     toAddr*: IpAddress
     toPort*: Option[uint16]
@@ -224,6 +233,7 @@ type
 
   NormalizedDnatRule* = object
     inZones*: seq[ZoneName]
+    srcAddrs*: seq[IpAddress]
     matches*: seq[NormalizedServiceMatch]
     toAddr*: IpAddress
     toPort*: Option[uint16]
@@ -422,6 +432,39 @@ proc fromJson*(v: var NatAction, value: JsonValue, input: string) =
 # ------------------------------------------------------------------------------
 proc toJson*(src: NatAction, s: var string) =
   sunny.toJson($src, s)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc fromJson*(v: var AddressList, value: JsonValue, input: string) =
+  case value.kind
+  of NullValue:
+    v.items.setLen(0)
+
+  of StringValue:
+    var address: string
+    sunny.fromJson(address, value, input)
+    v.items = @[address]
+
+  of ArrayValue:
+    sunny.fromJson(v.items, value, input)
+
+  else:
+    raise newException(
+      CatchableError,
+      "Expected address to be a string or array at " & $value.start &
+        ", got " & $value.kind
+    )
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc toJson*(src: AddressList, s: var string) =
+  if src.items.len == 1:
+    sunny.toJson(src.items[0], s)
+    return
+
+  sunny.toJson(src.items, s)
 
 # ------------------------------------------------------------------------------
 #

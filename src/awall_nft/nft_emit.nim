@@ -91,6 +91,17 @@ proc joinBareSet(values: seq[string]): string =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc joinIpAddressSet(addrs: seq[IpAddress]): string =
+  var values: seq[string] = @[]
+
+  for addr in addrs:
+    values.add(string(addr))
+
+  result = joinBareSet(values)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc nftIdentPart(s: string): string =
   result = ""
 
@@ -945,6 +956,16 @@ proc emitForwardKnownIifChain(outp: var string, cfg: NormalizedConfig): AE[void]
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc dnatSourceMatchText(rule: NormalizedDnatRule): string =
+  if rule.srcAddrs.len == 0:
+    result = ""
+    return
+
+  result = &"ip saddr {joinIpAddressSet(rule.srcAddrs)}"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc dnatForwardDaddrText(rule: NormalizedDnatRule, match: NormalizedServiceMatch): string =
   let targetAddress = string(rule.toAddr)
 
@@ -981,9 +1002,13 @@ proc emitDnatForwardAcceptRules(outp: var string, cfg: NormalizedConfig): AE[voi
 
     for baseCond in inConds:
       for match in rule.matches:
+        let src = dnatSourceMatchText(rule)
         let daddr = dnatForwardDaddrText(rule, match)
         let svc = ?dnatForwardServiceText(rule, match)
-        let condition = combineConds(baseCond, combineConds("ct status dnat", daddr))
+        let condition = combineConds(
+          combineConds(baseCond, src),
+          combineConds("ct status dnat", daddr)
+        )
         let line = combineConds(combineConds(condition, svc), "accept")
         addLine(outp, 2, line)
 
@@ -1091,8 +1116,9 @@ proc emitDnatRules(outp: var string, cfg: NormalizedConfig): AE[void] =
 
     for baseCond in inConds:
       for match in rule.matches:
+        let src = dnatSourceMatchText(rule)
         let svc = ?serviceMatchText(match)
-        let condition = combineConds(baseCond, svc)
+        let condition = combineConds(combineConds(baseCond, src), svc)
         let line = combineConds(condition, dnatToText(rule))
         addLine(outp, 2, line)
 
