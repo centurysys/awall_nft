@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.1.0"
+version       = "0.1.1"
 author        = "Takeyoshi Kikuchi"
 description   = "Generate nftables rules from a small awall-compatible firewall configuration subset."
 license       = "MIT"
