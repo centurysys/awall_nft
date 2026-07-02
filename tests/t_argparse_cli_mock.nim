@@ -13,14 +13,14 @@ proc cmdGenerate(
     privateDir: string,
     servicesPath: string,
     outPath: string,
-    flushRuleset: bool
+    cleanupMode: string
 ): int =
   echo "command      : generate"
   echo "main         : ", mainPath
   echo "private-dir  : ", privateDir
   echo "services     : ", servicesPath
   echo "output       : ", outPath
-  echo "flush-ruleset: ", flushRuleset
+  echo "cleanup-mode : ", cleanupMode
   result = 0
 
 proc cmdCheck(filePath: string): int =
@@ -39,14 +39,14 @@ proc cmdBuildCheck(
     privateDir: string,
     servicesPath: string,
     outPath: string,
-    flushRuleset: bool
+    cleanupMode: string
 ): int =
   echo "command      : build-check"
   echo "main         : ", mainPath
   echo "private-dir  : ", privateDir
   echo "services     : ", servicesPath
   echo "output       : ", outPath
-  echo "flush-ruleset: ", flushRuleset
+  echo "cleanup-mode : ", cleanupMode
   result = 0
 
 proc main() =
@@ -79,17 +79,33 @@ proc main() =
       )
 
       flag(
+        "--flush-ruleset",
+        help = "Emit 'flush ruleset' at the beginning; this removes all nftables tables"
+      )
+
+      flag(
+        "--no-replace-managed-tables",
+        help = "Do not emit the default 'destroy table ...' prelude for awall_nft-managed tables"
+      )
+
+      flag(
         "--no-flush-ruleset",
-        help = "Do not emit 'flush ruleset' at the beginning"
+        help = "Compatibility alias for --no-replace-managed-tables"
       )
 
       run:
+        var cleanupMode = "replace-managed-tables"
+        if opts.flushRuleset:
+          cleanupMode = "flush-ruleset"
+        elif opts.noFlushRuleset or opts.noReplaceManagedTables:
+          cleanupMode = "none"
+
         quit(cmdGenerate(
           opts.main,
           opts.privateDir,
           opts.services,
           opts.output,
-          not opts.noFlushRuleset
+          cleanupMode
         ))
 
     command("check"):
@@ -144,17 +160,33 @@ proc main() =
       )
 
       flag(
+        "--flush-ruleset",
+        help = "Emit 'flush ruleset' at the beginning; this removes all nftables tables"
+      )
+
+      flag(
+        "--no-replace-managed-tables",
+        help = "Do not emit the default 'destroy table ...' prelude for awall_nft-managed tables"
+      )
+
+      flag(
         "--no-flush-ruleset",
-        help = "Do not emit 'flush ruleset' at the beginning"
+        help = "Compatibility alias for --no-replace-managed-tables"
       )
 
       run:
+        var cleanupMode = "replace-managed-tables"
+        if opts.flushRuleset:
+          cleanupMode = "flush-ruleset"
+        elif opts.noFlushRuleset or opts.noReplaceManagedTables:
+          cleanupMode = "none"
+
         quit(cmdBuildCheck(
           opts.main,
           opts.privateDir,
           opts.services,
           opts.output,
-          not opts.noFlushRuleset
+          cleanupMode
         ))
 
   try:

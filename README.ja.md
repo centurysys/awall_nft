@@ -549,6 +549,29 @@ default値は次の通りです。
 awall_nft generate -o /tmp/awall_nft.nft
 ```
 
+defaultでは、生成されるrulesetの先頭に `flush ruleset` は出力しません。
+代わりに、awall_nftが自分で管理するtableだけを置き換えるため、次のpreludeを出力します。
+
+```nft
+destroy table inet awall_nft
+destroy table ip awall_nft_nat
+```
+
+これにより、LXCなど他のサービスが作成したtableを消さずに、awall_nft管理tableだけを再作成できます。
+完全初期化が必要な場合だけ、明示的に `--flush-ruleset` を指定します。
+
+```sh
+awall_nft generate --flush-ruleset -o /tmp/awall_nft.nft
+```
+
+preludeを何も出力しない場合は、次を指定します。
+
+```sh
+awall_nft generate --no-replace-managed-tables -o /tmp/awall_nft.nft
+```
+
+`--no-flush-ruleset` は互換用のaliasとして残しています。
+
 ### 生成済みrulesetのcheck
 
 ```sh

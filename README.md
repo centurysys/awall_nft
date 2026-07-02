@@ -556,6 +556,29 @@ So the same command can usually be shortened to:
 awall_nft generate -o /tmp/awall_nft.nft
 ```
 
+By default, the generated ruleset no longer starts with `flush ruleset`.
+Instead, it emits a prelude that replaces only the tables managed by awall_nft:
+
+```nft
+destroy table inet awall_nft
+destroy table ip awall_nft_nat
+```
+
+This keeps tables created by other services, such as LXC, while recreating only the awall_nft-managed tables.
+Use `--flush-ruleset` only when a full nftables reset is explicitly desired.
+
+```sh
+awall_nft generate --flush-ruleset -o /tmp/awall_nft.nft
+```
+
+To emit no cleanup prelude, use:
+
+```sh
+awall_nft generate --no-replace-managed-tables -o /tmp/awall_nft.nft
+```
+
+`--no-flush-ruleset` remains as a compatibility alias.
+
 ### Check generated ruleset
 
 ```sh

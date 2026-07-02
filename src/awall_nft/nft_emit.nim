@@ -9,10 +9,15 @@ type
     ftAuto
     ftOn
 
+  NftCleanupMode* = enum
+    ncmNone
+    ncmReplaceManagedTables
+    ncmFlushRuleset
+
   NftEmitOptions* = object
     inetTableName*: string
     natTableName*: string
-    includeFlushRuleset*: bool
+    cleanupMode*: NftCleanupMode
     allowRoutingIcmp*: bool
     flowtableMode*: FlowtableMode
     flowtableName*: string
@@ -24,7 +29,7 @@ proc defaultNftEmitOptions*(): NftEmitOptions =
   result = NftEmitOptions(
     inetTableName: "awall_nft",
     natTableName: "awall_nft_nat",
-    includeFlushRuleset: true,
+    cleanupMode: ncmReplaceManagedTables,
     allowRoutingIcmp: true,
     flowtableMode: ftAuto,
     flowtableName: "ft_forward",
@@ -1182,12 +1187,25 @@ proc emitNatTable(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptions)
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc emitCleanupPrelude(outp: var string, opts: NftEmitOptions) =
+  case opts.cleanupMode
+  of ncmNone:
+    discard
+  of ncmReplaceManagedTables:
+    addLine(outp, 0, &"destroy table inet {opts.inetTableName}")
+    addLine(outp, 0, &"destroy table ip {opts.natTableName}")
+    addLine(outp, 0, "")
+  of ncmFlushRuleset:
+    addLine(outp, 0, "flush ruleset")
+    addLine(outp, 0, "")
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc emitNft*(cfg: NormalizedConfig, opts: NftEmitOptions): AE[string] =
   var outp = ""
 
-  if opts.includeFlushRuleset:
-    addLine(outp, 0, "flush ruleset")
-    addLine(outp, 0, "")
+  emitCleanupPrelude(outp, opts)
 
   ?emitFilterTable(outp, cfg, opts)
   ?emitNatTable(outp, cfg, opts)

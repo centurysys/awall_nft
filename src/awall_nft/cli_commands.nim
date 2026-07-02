@@ -57,10 +57,10 @@ proc generateCommand*(
     privateDir: string,
     servicesPath: string,
     outPath: string,
-    flushRuleset: bool
+    cleanupMode: NftCleanupMode
 ): AE[void] =
   var opts = defaultNftEmitOptions()
-  opts.includeFlushRuleset = flushRuleset
+  opts.cleanupMode = cleanupMode
 
   let text = ?generateNftText(
     mainPath,
@@ -101,14 +101,14 @@ proc buildCheckCommand*(
     privateDir: string,
     servicesPath: string,
     outPath: string,
-    flushRuleset: bool
+    cleanupMode: NftCleanupMode
 ): AE[void] =
   ?generateCommand(
     mainPath,
     privateDir,
     servicesPath,
     outPath,
-    flushRuleset
+    cleanupMode
   ).trace("buildCheckCommand.generateCommand")
 
   ?checkCommand(outPath).trace("buildCheckCommand.checkCommand")

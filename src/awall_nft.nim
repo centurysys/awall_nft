@@ -1,7 +1,7 @@
 import std/options
 import argparse
 
-import awall_nft/[cli_commands, errors]
+import awall_nft/[cli_commands, errors, nft_emit]
 
 # ------------------------------------------------------------------------------
 #
@@ -12,6 +12,38 @@ proc exitWithResult(res: AE[void]) =
     quit(1)
 
   quit(0)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc exitWithValue[T](res: AE[T]): T =
+  if res.isErr:
+    stderr.writeLine(res.error)
+    quit(1)
+
+  result = res.get()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc selectCleanupMode(
+    flushRuleset: bool,
+    noFlushRuleset: bool,
+    noReplaceManagedTables: bool
+): AE[NftCleanupMode] =
+  if flushRuleset and (noFlushRuleset or noReplaceManagedTables):
+    return fail[NftCleanupMode](
+      ekInvalid,
+      "--flush-ruleset cannot be used with --no-flush-ruleset or --no-replace-managed-tables"
+    )
+
+  if flushRuleset:
+    return ok(ncmFlushRuleset)
+
+  if noFlushRuleset or noReplaceManagedTables:
+    return ok(ncmNone)
+
+  result = ok(ncmReplaceManagedTables)
 
 # ------------------------------------------------------------------------------
 #
@@ -46,17 +78,32 @@ proc main() =
       )
 
       flag(
+        "--flush-ruleset",
+        help = "Emit 'flush ruleset' at the beginning; this removes all nftables tables"
+      )
+
+      flag(
+        "--no-replace-managed-tables",
+        help = "Do not emit the default 'destroy table ...' prelude for awall_nft-managed tables"
+      )
+
+      flag(
         "--no-flush-ruleset",
-        help = "Do not emit 'flush ruleset' at the beginning"
+        help = "Compatibility alias for --no-replace-managed-tables"
       )
 
       run:
+        let cleanupMode = exitWithValue(selectCleanupMode(
+          opts.flushRuleset,
+          opts.noFlushRuleset,
+          opts.noReplaceManagedTables
+        ))
         exitWithResult(generateCommand(
           opts.main,
           opts.privateDir,
           opts.services,
           opts.output,
-          not opts.noFlushRuleset
+          cleanupMode
         ))
 
     command("check"):
@@ -170,17 +217,32 @@ proc main() =
       )
 
       flag(
+        "--flush-ruleset",
+        help = "Emit 'flush ruleset' at the beginning; this removes all nftables tables"
+      )
+
+      flag(
+        "--no-replace-managed-tables",
+        help = "Do not emit the default 'destroy table ...' prelude for awall_nft-managed tables"
+      )
+
+      flag(
         "--no-flush-ruleset",
-        help = "Do not emit 'flush ruleset' at the beginning"
+        help = "Compatibility alias for --no-replace-managed-tables"
       )
 
       run:
+        let cleanupMode = exitWithValue(selectCleanupMode(
+          opts.flushRuleset,
+          opts.noFlushRuleset,
+          opts.noReplaceManagedTables
+        ))
         exitWithResult(buildCheckCommand(
           opts.main,
           opts.privateDir,
           opts.services,
           opts.output,
-          not opts.noFlushRuleset
+          cleanupMode
         ))
 
   try:

@@ -58,7 +58,7 @@ proc main() =
   let normalized = normalizedRes.get()
 
   var opts = defaultNftEmitOptions()
-  opts.includeFlushRuleset = true
+  opts.cleanupMode = ncmFlushRuleset
   opts.inetTableName = "awall_nft_test"
   opts.natTableName = "awall_nft_test_nat"
 
