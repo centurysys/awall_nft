@@ -153,11 +153,14 @@ table ip awall_lxc_dnat {
 
 通常の awall DNAT より後段で評価されるよう、`priority dstnat` より少し後ろの `-90` を使う想定。
 
-## 最初の実装範囲
+## 実装ステップ
 
-最初のステップでは、コンテナ内の `/etc/lxc-dnat.d/*.conf` を読む INI 風パーサを追加する。
+実装は段階的に進める。
 
-この段階では、まだ hook / `/run` JSON 生成 / nftables 反映は実装しない。
+1. コンテナ内の `/etc/lxc-dnat.d/*.conf` を読む INI 風パーサ
+2. `lxc-dnat-helper` による `/run/lxc/dnat-requests.d/<instance>.json` 生成・削除
+3. `lxc-dnat-sync` による `table ip awall_lxc_dnat` 反映
+4. WebUI 用 status JSON 出力
 
 ## lxc-dnat-helper
 
@@ -204,3 +207,88 @@ lxc.hook.post-stop = /usr/local/bin/lxc-dnat-helper cleanup --sync-command=/usr/
 
 `lxc-dnat-sync` は次ステップで追加します。現段階では `--sync-command` を
 指定しなければ、request JSON の生成・削除だけを行います。
+
+## lxc-dnat-sync
+
+`lxc-dnat-sync` は、ホスト側の `/run/lxc/dnat-requests.d/*.json` を全て読み、
+LXC 動的 DNAT 専用の nftables table を再生成するコマンドです。
+
+```text
+lxc-dnat-sync
+```
+
+処理内容:
+
+1. awall 設定を読み込む
+2. `/run/lxc/dnat-requests.d/*.json` を全読み込みする
+3. DNAT 要求同士の `proto + in + port` 重複を検査する
+4. 通常 awall DNAT 設定との `proto + in + port` 重複を検査する
+5. reserved port を拒否する
+6. ホスト上で既に listen している同一 `proto + port` を拒否する
+7. 有効な要求だけから `table ip awall_lxc_dnat` を生成する
+8. `nft -c -f` で検査し、問題なければ `nft -f` で適用する
+
+生成される table は次の形です。
+
+```nft
+destroy table ip awall_lxc_dnat
+
+table ip awall_lxc_dnat {
+        chain prerouting {
+                type nat hook prerouting priority -90; policy accept;
+                jump dynamic
+        }
+
+        chain dynamic {
+                iifname { "eth0", "eth1" } tcp dport 8880 dnat to 10.0.3.13:80
+        }
+}
+```
+
+通常の awall DNAT は `priority dstnat`、つまり `-100` 相当なので、
+LXC 動的 DNAT は少し後段の `-90` にしています。
+
+### reserved port
+
+初期実装では以下を拒否します。
+
+```text
+tcp/22
+tcp/53
+tcp/67
+tcp/80
+tcp/443
+udp/53
+udp/67
+```
+
+これらはコンテナ側 `/etc/lxc-dnat.d/*.conf` からは解除できません。
+必要な場合は標準機能ではなく、通常の awall DNAT 設定やフルカスタム構成で扱います。
+
+### 衝突時の扱い
+
+衝突した rule は skip し、stderr に warning を出します。
+有効な rule が残っていれば、それらだけを nftables に反映します。
+
+```text
+lxc-dnat-sync: warning: alpine_hailo_demo:ssh: reserved host port: tcp/22
+lxc-dnat-sync: synced 4 rule(s), skipped 1 rule(s)
+```
+
+### option
+
+```text
+--check-only
+  生成した nft script を nft -c -f で検査するが適用しない。
+
+--dry-run
+  生成した nft script を標準出力へ出す。
+
+--skip-host-listen-check
+  ホスト listen port との衝突チェックを無効化する。
+  テスト用途を想定。
+
+--skip-reserved-port-check
+  reserved port チェックを無効化する。
+  テスト用途を想定。
+```

@@ -1,4 +1,5 @@
-import std/[json, os, osproc, strformat, strutils]
+import std/[json, options, os, strformat, strutils]
+import argparse
 
 import awall_nft/[errors, lxc_dnat_decl, lxc_dnat_request]
 
@@ -28,41 +29,6 @@ const
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc printUsage() =
-  stderr.writeLine("""
-usage:
-  lxc-dnat-helper setup [options]
-  lxc-dnat-helper cleanup [options]
-
-options:
-  --instance=<name>       LXC instance name. Defaults to LXC_NAME or legacy hook arg.
-  --rootfs=<path>         Mounted rootfs path. Defaults to LXC_ROOTFS_MOUNT or /var/lib/lxc/<name>/rootfs.
-  --address=<addr>        Instance IPv4 address. Overrides instance.json lookup.
-  --config-dir=<path>     Container-side declaration directory relative to rootfs or absolute.
-                          Default: etc/lxc-dnat.d
-  --request-dir=<path>    Runtime request directory. Default: /run/lxc/dnat-requests.d
-  --staging-dir=<path>    Temporary directory for atomic request file installation.
-                          Default: /run/lxc/dnat-requests.staging
-  --instance-json=<path>  Instance metadata path. Default: /var/lib/lxc/<name>/instance.json.
-  --config-file=<path>    LXC config path for fallback address lookup.
-  --sync-command=<cmd>    Command to run after setup/cleanup. Empty means no sync.
-  --no-sync               Do not run sync-command.
-  -h, --help              Show this help.
-""")
-
-# ------------------------------------------------------------------------------
-#
-# ------------------------------------------------------------------------------
-proc optValue(arg: string, name: string): string =
-  let prefix = name & "="
-  if arg.startsWith(prefix):
-    result = arg[prefix.len .. ^1]
-  else:
-    result = ""
-
-# ------------------------------------------------------------------------------
-#
-# ------------------------------------------------------------------------------
 proc envValue(name: string): string =
   if existsEnv(name):
     result = getEnv(name)
@@ -72,106 +38,33 @@ proc envValue(name: string): string =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc parseOptions(): AE[HelperOptions] =
-  var opts = HelperOptions(
+proc defaultHelperOptions(command: HelperCommand): HelperOptions =
+  result = HelperOptions(
+    command: command,
     configDir: DefaultConfigRelDir,
     requestDir: DefaultRequestDir,
     stagingDir: DefaultStagingDir,
     syncCommand: "",
   )
-  var commandSet = false
-  var positional: seq[string] = @[]
 
-  for i in 1 .. paramCount():
-    let arg = paramStr(i)
-
-    if arg == "-h" or arg == "--help":
-      printUsage()
-      quit(0)
-
-    if arg == "setup" and not commandSet:
-      opts.command = hcSetup
-      commandSet = true
-      continue
-
-    if arg == "cleanup" and not commandSet:
-      opts.command = hcCleanup
-      commandSet = true
-      continue
-
-    if arg == "--no-sync":
-      opts.noSync = true
-      continue
-
-    var value: string
-
-    value = optValue(arg, "--instance")
-    if value.len > 0:
-      opts.instance = value
-      continue
-
-    value = optValue(arg, "--rootfs")
-    if value.len > 0:
-      opts.rootfs = value
-      continue
-
-    value = optValue(arg, "--address")
-    if value.len > 0:
-      opts.address = value
-      continue
-
-    value = optValue(arg, "--config-dir")
-    if value.len > 0:
-      opts.configDir = value
-      continue
-
-    value = optValue(arg, "--request-dir")
-    if value.len > 0:
-      opts.requestDir = value
-      continue
-
-    value = optValue(arg, "--staging-dir")
-    if value.len > 0:
-      opts.stagingDir = value
-      continue
-
-    value = optValue(arg, "--instance-json")
-    if value.len > 0:
-      opts.instanceJson = value
-      continue
-
-    value = optValue(arg, "--config-file")
-    if value.len > 0:
-      opts.configFile = value
-      continue
-
-    value = optValue(arg, "--sync-command")
-    if value.len > 0:
-      opts.syncCommand = value
-      continue
-
-    if arg.startsWith("-"):
-      return fail[HelperOptions](ekInvalid, &"unknown option: {arg}")
-
-    positional.add(arg)
-
-  if not commandSet:
-    return fail[HelperOptions](ekInvalid, "missing command: setup or cleanup")
-
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc finalizeOptions(opts: var HelperOptions, legacyArgs: seq[string]): AE[void] =
   if opts.instance.len == 0:
     opts.instance = envValue("LXC_NAME")
 
-  if opts.instance.len == 0 and positional.len > 0:
+  if opts.instance.len == 0 and legacyArgs.len > 0:
     ## Legacy LXC hook invocations may append the container name as the first
     ## extra positional argument. Keep this fallback so the helper does not
     ## depend on one specific hook argument version.
-    opts.instance = positional[0]
+    opts.instance = legacyArgs[0]
 
   if opts.instance.len == 0:
-    return fail[HelperOptions](ekInvalid, "missing instance name")
+    return failVoid(ekInvalid, "missing instance name")
 
   if not isSafeName(opts.instance):
-    return fail[HelperOptions](ekInvalid, &"unsafe instance name: {opts.instance}")
+    return failVoid(ekInvalid, &"unsafe instance name: {opts.instance}")
 
   if opts.rootfs.len == 0:
     opts.rootfs = envValue("LXC_ROOTFS_MOUNT")
@@ -191,7 +84,7 @@ proc parseOptions(): AE[HelperOptions] =
   if opts.configFile.len == 0:
     opts.configFile = "/var/lib/lxc" / opts.instance / "config"
 
-  result = ok(opts)
+  result = okVoid()
 
 # ------------------------------------------------------------------------------
 #
@@ -354,18 +247,243 @@ proc exitWithResult(res: AE[void]) =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc main() =
-  let opts = parseOptions()
-  if opts.isErr:
-    stderr.writeLine(opts.error)
-    printUsage()
+proc setupFromCli(
+    instance: string,
+    rootfs: string,
+    address: string,
+    configDir: string,
+    requestDir: string,
+    stagingDir: string,
+    instanceJson: string,
+    configFile: string,
+    syncCommand: string,
+    noSync: bool,
+    legacyArgs: seq[string]
+) =
+  var helperOpts = defaultHelperOptions(hcSetup)
+  helperOpts.instance = instance
+  helperOpts.rootfs = rootfs
+  helperOpts.address = address
+  helperOpts.configDir = configDir
+  helperOpts.requestDir = requestDir
+  helperOpts.stagingDir = stagingDir
+  helperOpts.instanceJson = instanceJson
+  helperOpts.configFile = configFile
+  helperOpts.syncCommand = syncCommand
+  helperOpts.noSync = noSync
+
+  let finalized = finalizeOptions(helperOpts, legacyArgs)
+  if finalized.isErr:
+    stderr.writeLine(finalized.error)
     quit(1)
 
-  case opts.get().command
-  of hcSetup:
-    exitWithResult(setup(opts.get()))
-  of hcCleanup:
-    exitWithResult(cleanup(opts.get()))
+  exitWithResult(setup(helperOpts))
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc cleanupFromCli(
+    instance: string,
+    rootfs: string,
+    address: string,
+    configDir: string,
+    requestDir: string,
+    stagingDir: string,
+    instanceJson: string,
+    configFile: string,
+    syncCommand: string,
+    noSync: bool,
+    legacyArgs: seq[string]
+) =
+  var helperOpts = defaultHelperOptions(hcCleanup)
+  helperOpts.instance = instance
+  helperOpts.rootfs = rootfs
+  helperOpts.address = address
+  helperOpts.configDir = configDir
+  helperOpts.requestDir = requestDir
+  helperOpts.stagingDir = stagingDir
+  helperOpts.instanceJson = instanceJson
+  helperOpts.configFile = configFile
+  helperOpts.syncCommand = syncCommand
+  helperOpts.noSync = noSync
+
+  let finalized = finalizeOptions(helperOpts, legacyArgs)
+  if finalized.isErr:
+    stderr.writeLine(finalized.error)
+    quit(1)
+
+  exitWithResult(cleanup(helperOpts))
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc main() =
+  var p = newParser:
+    help("Generate and remove runtime LXC DNAT request files from LXC hooks")
+
+    command("setup"):
+      help("Generate a runtime DNAT request from the container declaration files")
+
+      option(
+        "--instance",
+        default = some(""),
+        help = "LXC instance name. Defaults to LXC_NAME or legacy hook arg"
+      )
+
+      option(
+        "--rootfs",
+        default = some(""),
+        help = "Mounted rootfs path. Defaults to LXC_ROOTFS_MOUNT or /var/lib/lxc/<name>/rootfs"
+      )
+
+      option(
+        "--address",
+        default = some(""),
+        help = "Instance IPv4 address. Overrides instance.json lookup"
+      )
+
+      option(
+        "--config-dir",
+        default = some(DefaultConfigRelDir),
+        help = "Container-side declaration directory relative to rootfs or absolute"
+      )
+
+      option(
+        "--request-dir",
+        default = some(DefaultRequestDir),
+        help = "Runtime request directory"
+      )
+
+      option(
+        "--staging-dir",
+        default = some(DefaultStagingDir),
+        help = "Temporary directory for atomic request file installation"
+      )
+
+      option(
+        "--instance-json",
+        default = some(""),
+        help = "Instance metadata path. Default: /var/lib/lxc/<name>/instance.json"
+      )
+
+      option(
+        "--config-file",
+        default = some(""),
+        help = "LXC config path for fallback address lookup"
+      )
+
+      option(
+        "--sync-command",
+        default = some(""),
+        help = "Command to run after setup. Empty means no sync"
+      )
+
+      flag(
+        "--no-sync",
+        help = "Do not run sync-command"
+      )
+
+      arg("legacyArgs", nargs = -1)
+
+      run:
+        setupFromCli(
+          opts.instance,
+          opts.rootfs,
+          opts.address,
+          opts.configDir,
+          opts.requestDir,
+          opts.stagingDir,
+          opts.instanceJson,
+          opts.configFile,
+          opts.syncCommand,
+          opts.noSync,
+          opts.legacyArgs
+        )
+
+    command("cleanup"):
+      help("Remove this instance's runtime DNAT request")
+
+      option(
+        "--instance",
+        default = some(""),
+        help = "LXC instance name. Defaults to LXC_NAME or legacy hook arg"
+      )
+
+      option(
+        "--rootfs",
+        default = some(""),
+        help = "Mounted rootfs path. Defaults to LXC_ROOTFS_MOUNT or /var/lib/lxc/<name>/rootfs"
+      )
+
+      option(
+        "--address",
+        default = some(""),
+        help = "Instance IPv4 address. Overrides instance.json lookup"
+      )
+
+      option(
+        "--config-dir",
+        default = some(DefaultConfigRelDir),
+        help = "Container-side declaration directory relative to rootfs or absolute"
+      )
+
+      option(
+        "--request-dir",
+        default = some(DefaultRequestDir),
+        help = "Runtime request directory"
+      )
+
+      option(
+        "--staging-dir",
+        default = some(DefaultStagingDir),
+        help = "Temporary directory for atomic request file installation"
+      )
+
+      option(
+        "--instance-json",
+        default = some(""),
+        help = "Instance metadata path. Default: /var/lib/lxc/<name>/instance.json"
+      )
+
+      option(
+        "--config-file",
+        default = some(""),
+        help = "LXC config path for fallback address lookup"
+      )
+
+      option(
+        "--sync-command",
+        default = some(""),
+        help = "Command to run after cleanup. Empty means no sync"
+      )
+
+      flag(
+        "--no-sync",
+        help = "Do not run sync-command"
+      )
+
+      arg("legacyArgs", nargs = -1)
+
+      run:
+        cleanupFromCli(
+          opts.instance,
+          opts.rootfs,
+          opts.address,
+          opts.configDir,
+          opts.requestDir,
+          opts.stagingDir,
+          opts.instanceJson,
+          opts.configFile,
+          opts.syncCommand,
+          opts.noSync,
+          opts.legacyArgs
+        )
+
+  try:
+    p.run()
+  except UsageError:
+    stderr.writeLine(getCurrentExceptionMsg())
+    quit(1)
 
 when isMainModule:
   main()
