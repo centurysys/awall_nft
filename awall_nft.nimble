@@ -6,7 +6,7 @@ description   = "Generate nftables rules from a small awall-compatible firewall 
 license       = "MIT"
 srcDir        = "src"
 binDir        = "bin"
-bin           = @["awall_nft"]
+bin           = @["awall_nft", "lxc_dnat_helper"]
 
 
 # Dependencies
