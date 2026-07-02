@@ -160,7 +160,7 @@ table ip awall_lxc_dnat {
 1. コンテナ内の `/etc/lxc-dnat.d/*.conf` を読む INI 風パーサ
 2. `lxc-dnat-helper` による `/run/lxc/dnat-requests.d/<instance>.json` 生成・削除
 3. `lxc-dnat-sync` による `table ip awall_lxc_dnat` 反映
-4. WebUI 用 status JSON 出力
+4. `lxc-dnat-sync` による WebUI 用 status JSON 出力
 
 ## lxc-dnat-helper
 
@@ -205,8 +205,7 @@ lxc.hook.start-host = /usr/local/bin/lxc-dnat-helper setup --sync-command=/usr/l
 lxc.hook.post-stop = /usr/local/bin/lxc-dnat-helper cleanup --sync-command=/usr/local/bin/lxc-dnat-sync
 ```
 
-`lxc-dnat-sync` は次ステップで追加します。現段階では `--sync-command` を
-指定しなければ、request JSON の生成・削除だけを行います。
+`--sync-command` を指定すると、request JSON の生成・削除後に `lxc-dnat-sync` を呼び出します。
 
 ## lxc-dnat-sync
 
@@ -284,6 +283,9 @@ lxc-dnat-sync: synced 4 rule(s), skipped 1 rule(s)
 --dry-run
   生成した nft script を標準出力へ出す。
 
+--status-dir
+  WebUI 用 status JSON の出力先を指定する。デフォルトは /run/lxc/dnat-status.d。
+
 --skip-host-listen-check
   ホスト listen port との衝突チェックを無効化する。
   テスト用途を想定。
@@ -292,3 +294,64 @@ lxc-dnat-sync: synced 4 rule(s), skipped 1 rule(s)
   reserved port チェックを無効化する。
   テスト用途を想定。
 ```
+
+
+## status JSON
+
+`lxc-dnat-sync` は nftables への反映に成功したあと、WebUI 用の状態ファイルを出力します。
+
+```text
+/run/lxc/dnat-status.d/<instance>.json
+```
+
+停止したインスタンスは `lxc-dnat-helper cleanup` によって request JSON が削除され、次の `lxc-dnat-sync` で status JSON も削除されます。
+そのため、DNAT ステータス画面は基本的に「現在起動中で、DNAT 要求を持つインスタンス」だけを表示します。
+
+例:
+
+```json
+{
+  "instance": "alpine_hailo_demo",
+  "address": "10.0.3.13",
+  "status": "partial",
+  "updatedAt": "2026-07-02T00:00:00Z",
+  "active": 4,
+  "skipped": 1,
+  "rules": [
+    {
+      "name": "web",
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 8880
+      },
+      "to-addr": "10.0.3.13",
+      "to-port": 80,
+      "status": "active"
+    },
+    {
+      "name": "host-ssh",
+      "in": "Closed",
+      "service": {
+        "proto": "tcp",
+        "port": 22
+      },
+      "to-addr": "10.0.3.13",
+      "to-port": 22,
+      "status": "skipped",
+      "reason": "reserved host port: tcp/22"
+    }
+  ]
+}
+```
+
+`status` は以下のいずれかです。
+
+| status | 意味 |
+|---|---|
+| `active` | 全 rule が反映された |
+| `partial` | 一部 rule は反映され、一部は skip された |
+| `error` | 要求はあるが全 rule が skip された |
+| `empty` | request はあるが有効な rule が無い |
+
+`--dry-run` と `--check-only` では status JSON は更新しません。実際に nftables へ適用できた状態だけを WebUI に見せるためです。

@@ -50,6 +50,12 @@ proc main() =
       help = "Generated nft script path"
     )
 
+    option(
+      "--status-dir",
+      default = some("/run/lxc/dnat-status.d"),
+      help = "Directory for generated DNAT status JSON files"
+    )
+
     flag(
       "--check-only",
       help = "Generate and check the nft script, but do not apply it"
@@ -77,6 +83,7 @@ proc main() =
       syncOpts.servicesPath = opts.services
       syncOpts.requestDir = opts.requestDir
       syncOpts.runtimeNftPath = opts.runtimeNft
+      syncOpts.statusDir = opts.statusDir
       syncOpts.checkOnly = opts.checkOnly
       syncOpts.dryRun = opts.dryRun
       syncOpts.skipHostListenCheck = opts.skipHostListenCheck

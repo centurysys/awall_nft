@@ -1,4 +1,4 @@
-import std/[algorithm, hashes, json, os, options, strformat, strutils, tables]
+import std/[algorithm, hashes, json, os, options, strformat, strutils, tables, times]
 
 import ./errors
 import ./load_config
@@ -16,6 +16,7 @@ const
   LxcDnatPriority = "-90"
   LxcDnatSyncLockPath = "/run/lock/awall_nft/lxc-dnat-sync.lock"
   DefaultRuntimeNftPath = "/run/awall_nft/lxc-dnat-sync.nft"
+  DefaultStatusDir = "/run/lxc/dnat-status.d"
 
   ReservedTcpPorts = [22'u16, 53'u16, 67'u16, 80'u16, 443'u16]
   ReservedUdpPorts = [53'u16, 67'u16]
@@ -27,6 +28,7 @@ type
     servicesPath*: string
     requestDir*: string
     runtimeNftPath*: string
+    statusDir*: string
     checkOnly*: bool
     dryRun*: bool
     skipHostListenCheck*: bool
@@ -53,6 +55,12 @@ type
     instance*: string
     rule*: string
     reason*: string
+    inZone*: string
+    srcAddrs*: seq[string]
+    proto*: Protocol
+    port*: uint16
+    toAddr*: string
+    toPort*: uint16
 
   LxcDnatSyncPlan* = object
     rules*: seq[LxcDnatPlannedRule]
@@ -166,14 +174,20 @@ proc addWarning(
     plan: var LxcDnatSyncPlan,
     requestPath: string,
     instance: string,
-    rule: string,
+    rule: LxcDnatRequestRule,
     reason: string
 ) =
   plan.warnings.add(LxcDnatSyncWarning(
     requestPath: requestPath,
     instance: instance,
-    rule: rule,
+    rule: rule.name,
     reason: reason,
+    inZone: rule.inZone,
+    srcAddrs: rule.srcAddrs,
+    proto: rule.proto,
+    port: rule.port,
+    toAddr: rule.toAddr,
+    toPort: rule.toPort,
   ))
 
 # ------------------------------------------------------------------------------
@@ -572,20 +586,20 @@ proc buildLxcDnatSyncPlan*(
       let label = &"{request.instance}:{rule.name}"
 
       if checkReservedPorts and isReservedPort(rule.proto, rule.port):
-        plan.addWarning(path, request.instance, rule.name, &"reserved host port: {protoText(rule.proto)}/{rule.port}")
+        plan.addWarning(path, request.instance, rule, &"reserved host port: {protoText(rule.proto)}/{rule.port}")
         continue
 
       if seen.hasKey(key):
-        plan.addWarning(path, request.instance, rule.name, &"listen port conflict with {seen[key]}: {keyText(key)}")
+        plan.addWarning(path, request.instance, rule, &"listen port conflict with {seen[key]}: {keyText(key)}")
         continue
 
       let staticCollision = existingStaticDnatCollision(cfg, rule)
       if staticCollision.isSome:
-        plan.addWarning(path, request.instance, rule.name, &"listen port conflict with {staticCollision.get()}: {keyText(key)}")
+        plan.addWarning(path, request.instance, rule, &"listen port conflict with {staticCollision.get()}: {keyText(key)}")
         continue
 
       if checkHostListenPorts and hostListensOn(hostPorts, rule.proto, rule.port):
-        plan.addWarning(path, request.instance, rule.name, &"host listen port conflict: {protoText(rule.proto)}/{rule.port}")
+        plan.addWarning(path, request.instance, rule, &"host listen port conflict: {protoText(rule.proto)}/{rule.port}")
         continue
 
       seen[key] = label
@@ -653,6 +667,170 @@ proc writeRuntimeNft(path: string, nft: string): AE[void] =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc nowIso8601Utc(): string =
+  result = $now()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc statusFilePath(statusDir: string, instance: string): AE[string] =
+  if statusDir.len == 0:
+    return fail[string](ekInvalid, "status directory must not be empty")
+
+  if not isSafeName(instance):
+    return fail[string](ekInvalid, &"unsafe instance name: {instance}")
+
+  result = ok(statusDir / (instance & ".json"))
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc statusRuleKey(instance: string, rule: LxcDnatRequestRule): string =
+  result = &"{instance}\x00{rule.name}\x00{protoText(rule.proto)}\x00{rule.port}\x00{rule.toAddr}\x00{rule.toPort}"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc statusRuleKey(rule: LxcDnatPlannedRule): string =
+  result = &"{rule.instance}\x00{rule.name}\x00{protoText(rule.proto)}\x00{rule.port}\x00{rule.toAddr}\x00{rule.toPort}"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc statusRuleKey(warning: LxcDnatSyncWarning): string =
+  result = &"{warning.instance}\x00{warning.rule}\x00{protoText(warning.proto)}\x00{warning.port}\x00{warning.toAddr}\x00{warning.toPort}"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc ruleToStatusNode(rule: LxcDnatRequestRule, status: string, reason = ""): JsonNode =
+  result = newJObject()
+  result["name"] = %rule.name
+  result["in"] = %rule.inZone
+
+  if rule.srcAddrs.len > 0:
+    result["src"] = %rule.srcAddrs
+
+  result["service"] = %*{
+    "proto": protoText(rule.proto),
+    "port": int(rule.port),
+  }
+  result["to-addr"] = %rule.toAddr
+  result["to-port"] = %int(rule.toPort)
+  result["status"] = %status
+
+  if reason.len > 0:
+    result["reason"] = %reason
+  if rule.sourcePath.len > 0:
+    result["source-path"] = %rule.sourcePath
+  if rule.sourceLine > 0:
+    result["source-line"] = %rule.sourceLine
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc buildLxcDnatStatusNodes*(
+    requests: seq[(string, LxcDnatRequestFile)],
+    plan: LxcDnatSyncPlan,
+    updatedAt = ""
+): Table[string, JsonNode] =
+  var active = initTable[string, bool]()
+  var warnings = initTable[string, LxcDnatSyncWarning]()
+  let timestamp =
+    if updatedAt.len > 0:
+      updatedAt
+    else:
+      nowIso8601Utc()
+
+  for rule in plan.rules:
+    active[statusRuleKey(rule)] = true
+
+  for warning in plan.warnings:
+    warnings[statusRuleKey(warning)] = warning
+
+  var statuses = initTable[string, JsonNode]()
+
+  for pair in requests:
+    let request = pair[1]
+    var node = newJObject()
+    var rulesNode = newJArray()
+    var activeCount = 0
+    var skippedCount = 0
+
+    for rule in request.rules:
+      let key = statusRuleKey(request.instance, rule)
+      if active.hasKey(key):
+        inc(activeCount)
+        rulesNode.add(ruleToStatusNode(rule, "active"))
+      elif warnings.hasKey(key):
+        inc(skippedCount)
+        rulesNode.add(ruleToStatusNode(rule, "skipped", warnings[key].reason))
+      else:
+        inc(skippedCount)
+        rulesNode.add(ruleToStatusNode(rule, "skipped", "rule was not selected for synchronization"))
+
+    let status =
+      if skippedCount == 0 and activeCount > 0:
+        "active"
+      elif skippedCount == 0 and activeCount == 0:
+        "empty"
+      elif activeCount > 0:
+        "partial"
+      else:
+        "error"
+
+    node["instance"] = %request.instance
+    node["address"] = %request.address
+    node["status"] = %status
+    node["updatedAt"] = %timestamp
+    node["active"] = %activeCount
+    node["skipped"] = %skippedCount
+    node["rules"] = rulesNode
+    statuses[request.instance] = node
+
+  result = statuses
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc writeStatusJson(path: string, node: JsonNode): AE[void] =
+  try:
+    writeFile(path, node.pretty() & "\n")
+    result = okVoid()
+  except CatchableError as e:
+    result = failVoid(ekIO, &"failed to write '{path}': {e.msg}")
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc writeLxcDnatStatusFiles*(
+    statusDir: string,
+    requests: seq[(string, LxcDnatRequestFile)],
+    plan: LxcDnatSyncPlan
+): AE[void] =
+  ?ensureParentDir(statusDir / ".keep").trace("writeLxcDnatStatusFiles.ensureStatusDir")
+
+  let statuses = buildLxcDnatStatusNodes(requests, plan)
+  var expected = initTable[string, bool]()
+
+  for instance, node in statuses:
+    let path = ?statusFilePath(statusDir, instance)
+    expected[path] = true
+    ?writeStatusJson(path, node).trace("writeLxcDnatStatusFiles.writeStatusJson")
+
+  if dirExists(statusDir):
+    for kind, path in walkDir(statusDir):
+      if kind == pcFile and path.endsWith(".json") and not expected.hasKey(path):
+        try:
+          removeFile(path)
+        except CatchableError as e:
+          return failVoid(ekIO, &"failed to remove stale DNAT status file '{path}': {e.msg}")
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc lxcDnatSyncCommandImpl*(opts: LxcDnatSyncOptions): AE[void] =
   let loaded = ?loadConfig(opts.mainPath, opts.privateDir, opts.servicesPath).trace("lxcDnatSync.loadConfig")
   let normalized = ?normalizeConfig(loaded.config, loaded.services).trace("lxcDnatSync.normalizeConfig")
@@ -678,6 +856,7 @@ proc lxcDnatSyncCommandImpl*(opts: LxcDnatSyncOptions): AE[void] =
     ?checkNft(opts.runtimeNftPath).trace("lxcDnatSync.checkNft")
   else:
     ?checkThenApplyNft(opts.runtimeNftPath).trace("lxcDnatSync.checkThenApplyNft")
+    ?writeLxcDnatStatusFiles(opts.statusDir, requests, plan).trace("lxcDnatSync.writeStatus")
 
   echo &"lxc-dnat-sync: synced {plan.rules.len} rule(s), skipped {plan.warnings.len} rule(s)"
   result = okVoid()
@@ -713,6 +892,7 @@ proc defaultLxcDnatSyncOptions*(): LxcDnatSyncOptions =
     servicesPath: "/etc/awall/mandatory/services.json",
     requestDir: "/run/lxc/dnat-requests.d",
     runtimeNftPath: DefaultRuntimeNftPath,
+    statusDir: DefaultStatusDir,
     checkOnly: false,
     dryRun: false,
     skipHostListenCheck: false,
