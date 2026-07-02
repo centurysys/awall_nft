@@ -15,7 +15,10 @@ LXC インスタンスが必要とする DNAT を、通常の awall_nft 設定�
   /etc/lxc-dnat.d/*.conf
     ↓
 LXC start-host hook:
-  lxc-dnat-helper setup
+  lxc-dnat-helper schedule
+    ↓
+起動後の遅延 worker:
+  /proc/<pid>/root/etc/lxc-dnat.d/*.conf を読む
     ↓
 ホスト側の中間表現:
   /run/lxc/dnat-requests.d/<instance>.json
@@ -142,10 +145,10 @@ LXC 動的 DNAT は別 table として管理する。
 table ip awall_lxc_dnat {
         chain prerouting {
                 type nat hook prerouting priority -90; policy accept;
-                jump dynamic
+                jump lxc_dnat_dynamic
         }
 
-        chain dynamic {
+        chain lxc_dnat_dynamic {
                 # lxc-dnat-sync がここだけを更新する
         }
 }
@@ -166,9 +169,60 @@ table ip awall_lxc_dnat {
 
 `lxc-dnat-helper` は LXC hook から呼ぶための補助コマンドです。
 
-現時点の役割は、コンテナ内の `/etc/lxc-dnat.d/*.conf` を読み、ホスト側の
-中間表現として `/run/lxc/dnat-requests.d/<instance>.json` を生成・削除する
-ところまでです。
+役割は、コンテナ内の `/etc/lxc-dnat.d/*.conf` を読み、ホスト側の
+中間表現として `/run/lxc/dnat-requests.d/<instance>.json` を生成・削除し、
+その後 `lxc-dnat-sync` を呼び出して nftables へ反映することです。
+
+### schedule
+
+```text
+lxc-dnat-helper schedule
+```
+
+LXC の `start-host` hook から呼び出す通常運用向けコマンドです。
+
+`schedule` は長い処理を直接実行せず、`setup-running` worker を detached process として起動して、すぐ `exit 0` します。LXC hook の処理を止めないためです。
+
+worker は短時間リトライしながら `lxc-info -n <instance> -pH` で起動中コンテナの PID を取得し、次のパスからコンテナが実際に見ている rootfs を読みます。
+
+```text
+/proc/<pid>/root/etc/lxc-dnat.d/*.conf
+```
+
+これにより、LXC が overlayfs をコンテナ側 mount namespace 内で組み立てる構成でも、firmware 化された squashfs 内の DNAT 宣言を読めます。ホスト側の `/var/lib/lxc/<instance>/rootfs` が空に見える構成でも動作させるための方式です。
+
+`schedule` は stale worker 対策として、インスタンスごとの token を作ります。
+
+```text
+/run/lxc/dnat-workers/<instance>.token
+```
+
+`cleanup` 時にこの token を削除します。遅れて起動した古い worker は token 不一致を検出して何もせず終了します。
+
+worker のログはデフォルトで次に出ます。
+
+```text
+/run/lxc/dnat-workers/<instance>.log
+```
+
+### setup-running
+
+```text
+lxc-dnat-helper setup-running --instance <instance>
+```
+
+`schedule` から起動される内部用の one-shot worker です。手動デバッグにも使えます。
+
+処理内容:
+
+1. `lxc-info -n <instance> -pH` で起動中コンテナの PID を取得する
+2. `/proc/<pid>/root/etc/lxc-dnat.d/*.conf` を読む
+3. `/var/lib/lxc/<instance>/instance.json` の `ipv4` からインスタンスIPv4アドレスを取得する
+4. `to-addr` にインスタンスIPv4アドレスを設定する
+5. `/run/lxc/dnat-requests.d/<instance>.json` を生成する
+6. `lxc-dnat-sync` を呼び出して動的 DNAT table を同期する
+
+`to-addr` はコンテナ内の conf には書かせません。起動中インスタンスのアドレスを host 側で確定させます。`--address` が指定されていない場合は `instance.json` を優先し、必要な場合のみ LXC config を fallback として参照します。
 
 ### setup
 
@@ -176,17 +230,9 @@ table ip awall_lxc_dnat {
 lxc-dnat-helper setup
 ```
 
-処理内容:
+従来どおり、`LXC_ROOTFS_MOUNT` または `--rootfs` で指定された rootfs path から `/etc/lxc-dnat.d/*.conf` を読む同期実行コマンドです。
 
-1. インスタンス名を取得する
-2. rootfs mount path を取得する
-3. `/etc/lxc-dnat.d/*.conf` を読む
-4. `/var/lib/lxc/<instance>/instance.json` の `ipv4` からインスタンスIPv4アドレスを取得する
-5. `to-addr` にインスタンスIPv4アドレスを設定する
-6. `/run/lxc/dnat-requests.d/<instance>.json` を生成する
-
-`to-addr` はコンテナ内の conf には書かせません。起動中インスタンスの
-アドレスを host 側で確定させます。`--address` が指定されていない場合は `instance.json` を優先し、必要な場合のみ LXC config を fallback として参照します。
+素朴な rootfs 構成やテスト用途では使えますが、LXC が overlayfs を別 mount namespace 内で組み立てる構成では、ホスト側の rootfs path から DNAT 宣言が見えないことがあります。その場合は `schedule` / `setup-running` を使います。
 
 ### cleanup
 
@@ -196,16 +242,20 @@ lxc-dnat-helper cleanup
 
 処理内容:
 
-1. `/run/lxc/dnat-requests.d/<instance>.json` を削除する
+1. 遅延 worker 用 token を削除する
+2. `/run/lxc/dnat-requests.d/<instance>.json` を削除する
+3. `lxc-dnat-sync` を呼び出して該当インスタンス由来の DNAT を削除する
 
 ### LXC hook 設定例
 
 ```text
-lxc.hook.start-host = /usr/local/bin/lxc-dnat-helper setup --sync-command=/usr/local/bin/lxc-dnat-sync
-lxc.hook.post-stop = /usr/local/bin/lxc-dnat-helper cleanup --sync-command=/usr/local/bin/lxc-dnat-sync
+lxc.hook.start-host = /usr/local/bin/lxc-dnat-helper schedule
+lxc.hook.post-stop = /usr/local/bin/lxc-dnat-helper cleanup
 ```
 
-`--sync-command` を指定すると、request JSON の生成・削除後に `lxc-dnat-sync` を呼び出します。
+`lxc-dnat-helper` はデフォルトで `/usr/local/bin/lxc-dnat-sync` を呼び出します。別パスに置く場合は `--sync-command=<path>` で指定し、テストなどで同期を行わない場合は `--no-sync` を指定します。
+
+`schedule` は hook から即座に戻るため、DNAT 反映はコンテナ起動直後からわずかに遅れます。デフォルトでは 100ms 間隔で最大100回、起動中 PID の取得を試みます。調整する場合は `--retries` と `--interval-ms` を指定します。
 
 ## lxc-dnat-sync
 
@@ -235,10 +285,10 @@ destroy table ip awall_lxc_dnat
 table ip awall_lxc_dnat {
         chain prerouting {
                 type nat hook prerouting priority -90; policy accept;
-                jump dynamic
+                jump lxc_dnat_dynamic
         }
 
-        chain dynamic {
+        chain lxc_dnat_dynamic {
                 iifname { "eth0", "eth1" } tcp dport 8880 dnat to 10.0.3.13:80
         }
 }

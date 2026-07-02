@@ -12,7 +12,7 @@ const
   LxcDnatFamily = "ip"
   LxcDnatTable = "awall_lxc_dnat"
   LxcDnatPreroutingChain = "prerouting"
-  LxcDnatDynamicChain = "dynamic"
+  LxcDnatDynamicChain = "lxc_dnat_dynamic"
   LxcDnatPriority = "-90"
   LxcDnatSyncLockPath = "/run/lock/awall_nft/lxc-dnat-sync.lock"
   DefaultRuntimeNftPath = "/run/awall_nft/lxc-dnat-sync.nft"
