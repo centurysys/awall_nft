@@ -63,26 +63,26 @@ port = 8022
 to-port = 22
 
 [web]
-in = Closed
+in = Closed,LAN
 src = 203.0.113.10/32, 198.51.100.0/24
 proto = tcp
 port = 8880
 to-port = 80
 
 [hls]
-in = Closed
+in = Closed,LAN
 proto = tcp
 port = 8888
 to-port = 8888
 
 [webrtc-tcp]
-in = Closed
+in = Closed,LAN
 proto = tcp
 port = 8889
 to-port = 8889
 
 [webrtc-udp]
-in = Closed
+in = Closed,LAN
 proto = udp
 port = 8189
 to-port = 8189
@@ -92,7 +92,7 @@ to-port = 8189
 
 | key | 必須 | 内容 |
 |---|---:|---|
-| `in` | yes | awall の入力 zone 名。例: `Closed` |
+| `in` | yes | awall の入力 zone 名。カンマ区切りで複数指定可。例: `Closed` / `Closed,LAN` |
 | `src` | no | 許可する source address / CIDR。カンマ区切り |
 | `proto` | yes | `tcp` または `udp` |
 | `port` | yes | gateway 側の公開ポート。awall JSON の `service.port` 相当 |
@@ -100,6 +100,52 @@ to-port = 8189
 | `enabled` | no | `true` / `false`。省略時は `true` |
 
 `to-addr` は書かせない。`lxc-dnat-helper` が起動中インスタンスの IP アドレスを設定する。
+
+### `in` の複数 zone 指定と正規化
+
+`in` はカンマ区切りで複数の入力 zone を指定できます。
+
+```ini
+[web]
+in = Closed,LAN
+proto = tcp
+port = 8880
+to-port = 80
+```
+
+これは、`Closed` から来た `tcp/8880` も、`LAN` から来た `tcp/8880` も、
+同じコンテナアドレスの `tcp/80` へ DNAT する、という意味です。
+
+複数 zone を指定しても、zone ごとに別の宛先へ振り分ける機能ではありません。
+次のような高度な振り分けは、この companion 宣言ではなく通常の awall DNAT
+または nftables の明示設定で扱います。
+
+```text
+Closed から来たら 10.0.3.13:80
+LAN から来たら 10.0.3.13:8888
+```
+
+zone 名は `lxc-dnat-sync` が awall の zone 定義に対して大文字小文字を区別せずに照合し、
+status JSON には awall 側の実際の zone 名で正規化して出力します。
+
+例: awall 側に `Closed` と `LAN` が定義されている場合、次の指定はすべて同じ意味です。
+
+```ini
+in = Closed,LAN
+in = Lan, CLOSED
+in = closed, lan
+in = LAN,closed
+```
+
+status JSON では、重複を除去した canonical 表記として次のように出力します。
+
+```json
+"in": "Closed,LAN"
+```
+
+typo 補正は行いません。たとえば `Clsoed` は `Closed` には補正されず、unknown zone として扱います。
+また、awall 側に `LAN` と `Lan` のような大文字小文字だけが異なる zone が同時に存在し、
+入力値を一意に解決できない場合は ambiguous zone として扱います。
 
 ## INI 風パーサの仕様
 
@@ -111,6 +157,7 @@ to-port = 8189
 - 値は `key = value`
 - クォートやエスケープは基本的に扱わない
 - `enabled` は `true` / `false` のみ
+- `in` はカンマ区切りで複数指定可。空要素はエラー。例: `Closed,,LAN` は不可
 - `proto` は `tcp` / `udp` のみ
 - `port` / `to-port` は `1..65535`
 - 未知 key はエラー
@@ -270,12 +317,13 @@ lxc-dnat-sync
 
 1. awall 設定を読み込む
 2. `/run/lxc/dnat-requests.d/*.json` を全読み込みする
-3. DNAT 要求同士の `proto + in + port` 重複を検査する
-4. 通常 awall DNAT 設定との `proto + in + port` 重複を検査する
-5. reserved port を拒否する
-6. ホスト上で既に listen している同一 `proto + port` を拒否する
-7. 有効な要求だけから `table ip awall_lxc_dnat` を生成する
-8. `nft -c -f` で検査し、問題なければ `nft -f` で適用する
+3. `in` zone を awall zone 定義に照合し、複数 zone / 大文字小文字表記を canonical 化する
+4. DNAT 要求同士の `proto + port + zone overlap` 衝突を検査する
+5. 通常 awall DNAT 設定との `proto + port + zone overlap` 衝突を検査する
+6. reserved port を拒否する
+7. ホスト上で既に listen している同一 `proto + port` を拒否する
+8. 有効な要求だけから `table ip awall_lxc_dnat` を生成する
+9. `nft -c -f` で検査し、問題なければ `nft -f` で適用する
 
 生成される table は次の形です。
 
@@ -289,13 +337,26 @@ table ip awall_lxc_dnat {
         }
 
         chain lxc_dnat_dynamic {
-                iifname { "eth0", "eth1" } tcp dport 8880 dnat to 10.0.3.13:80
+                iifname { "eth0", "eth1", "ppp100" } tcp dport 8880 dnat to 10.0.3.13:80
+                iifname "br*" tcp dport 8880 dnat to 10.0.3.13:80
         }
 }
 ```
 
 通常の awall DNAT は `priority dstnat`、つまり `-100` 相当なので、
 LXC 動的 DNAT は少し後段の `-90` にしています。
+
+`in = Closed,LAN` のように複数 zone を指定した場合、`lxc-dnat-sync` は各 zone を
+interface 条件へ展開します。exact interface 名は重複を除いて nftables の set にまとめ、
+`br+` や `wg+` のような prefix/wildcard interface は別 rule として出力します。
+
+例: `Closed` が `eth0`, `eth1`、`LAN` が `ppp100`, `br+` を持つ場合、
+`in = Closed,LAN` は次のように展開されます。
+
+```nft
+iifname { "eth0", "eth1", "ppp100" } tcp dport 8880 dnat to 10.0.3.13:80
+iifname "br*" tcp dport 8880 dnat to 10.0.3.13:80
+```
 
 ### reserved port
 
@@ -318,6 +379,18 @@ udp/67
 
 衝突した rule は skip し、stderr に warning を出します。
 有効な rule が残っていれば、それらだけを nftables に反映します。
+
+LXC DNAT 同士、または通常 awall DNAT との衝突は、`proto` と host 側 `port` が同じで、
+入力 zone の集合に重なりがある場合に衝突とみなします。
+
+```text
+Closed,LAN と Closed  → 衝突
+Closed,LAN と LAN     → 衝突
+Closed,LAN と WAN     → 非衝突
+```
+
+ホスト上の listen port との衝突は zone に関係なく、同じ `proto + port` が listen されていれば
+rule 全体を skip します。通常のアプリケーションは awall zone 単位で listen を分けないためです。
 
 ```text
 lxc-dnat-sync: warning: alpine_hailo_demo:ssh: reserved host port: tcp/22
@@ -370,7 +443,7 @@ lxc-dnat-sync: synced 4 rule(s), skipped 1 rule(s)
   "rules": [
     {
       "name": "web",
-      "in": "Closed",
+      "in": "Closed,LAN",
       "service": {
         "proto": "tcp",
         "port": 8880

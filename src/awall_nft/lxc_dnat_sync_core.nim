@@ -3,6 +3,7 @@ import std/[algorithm, hashes, json, os, options, strformat, strutils, tables, t
 import ./errors
 import ./load_config
 import ./lxc_dnat_request
+import ./lxc_dnat_zones
 import ./nft_cmd
 import ./normalize
 import ./process_lock
@@ -61,6 +62,13 @@ type
     port*: uint16
     toAddr*: string
     toPort*: uint16
+
+  LxcDnatSeenRule = object
+    proto: Protocol
+    inZones: seq[ZoneName]
+    inZoneText: string
+    port: uint16
+    label: string
 
   LxcDnatSyncPlan* = object
     rules*: seq[LxcDnatPlannedRule]
@@ -371,22 +379,38 @@ proc zoneRuntime(cfg: NormalizedConfig, zone: ZoneName): AE[ZoneRuntime] =
 #
 # ------------------------------------------------------------------------------
 proc zoneMatchConditions(cfg: NormalizedConfig, zoneName: string): AE[seq[string]] =
-  let zone = ZoneName(zoneName)
+  let zones = ?resolveLxcDnatZones(cfg, zoneName, "lxc-dnat-sync.in")
 
-  if zone == ZoneFirewall:
+  if zones.len == 1 and zones[0] == ZoneFirewall:
     return ok(@[""])
 
-  let runtime = ?zoneRuntime(cfg, zone)
   var conditions: seq[string] = @[]
-
+  var exactSeen = initTable[string, bool]()
+  var prefixSeen = initTable[string, bool]()
   var exacts: seq[string] = @[]
-  for iface in runtime.exactIfaces:
-    exacts.add(string(iface))
+  var prefixes: seq[string] = @[]
+
+  for zone in zones:
+    if zone == ZoneFirewall:
+      continue
+
+    let runtime = ?zoneRuntime(cfg, zone)
+
+    for iface in runtime.exactIfaces:
+      let name = string(iface)
+      if not exactSeen.hasKey(name):
+        exactSeen[name] = true
+        exacts.add(name)
+
+    for prefix in runtime.prefixIfaces:
+      if not prefixSeen.hasKey(prefix):
+        prefixSeen[prefix] = true
+        prefixes.add(prefix)
 
   if exacts.len > 0:
     conditions.add("iifname " & joinQuotedSet(exacts))
 
-  for prefix in sortedStrings(runtime.prefixIfaces):
+  for prefix in sortedStrings(prefixes):
     conditions.add("iifname " & q(prefix & "*"))
 
   if conditions.len == 0:
@@ -432,16 +456,17 @@ proc dnatRuleToText(rule: LxcDnatPlannedRule, cfg: NormalizedConfig): AE[seq[str
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
-proc staticDnatCollides(staticRule: NormalizedDnatRule, requestRule: LxcDnatRequestRule): bool =
+proc staticDnatCollides(
+    staticRule: NormalizedDnatRule,
+    requestRule: LxcDnatRequestRule,
+    requestZones: seq[ZoneName]
+): bool =
   var zoneMatches = false
 
   if staticRule.inZones.len == 0:
     zoneMatches = true
   else:
-    for zone in staticRule.inZones:
-      if string(zone) == requestRule.inZone:
-        zoneMatches = true
-        break
+    zoneMatches = lxcDnatZonesOverlap(staticRule.inZones, requestZones)
 
   if not zoneMatches:
     return false
@@ -461,10 +486,11 @@ proc staticDnatCollides(staticRule: NormalizedDnatRule, requestRule: LxcDnatRequ
 # ------------------------------------------------------------------------------
 proc existingStaticDnatCollision(
     cfg: NormalizedConfig,
-    requestRule: LxcDnatRequestRule
+    requestRule: LxcDnatRequestRule,
+    requestZones: seq[ZoneName]
 ): Option[string] =
   for index, rule in cfg.dnats:
-    if staticDnatCollides(rule, requestRule):
+    if staticDnatCollides(rule, requestRule, requestZones):
       return some(&"awall dnat[{index}]")
 
   result = none(string)
@@ -547,6 +573,19 @@ proc hostListensOn(hostPorts: seq[LxcDnatKey], proto: Protocol, port: uint16): b
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc lxcDnatRuleConflicts(seen: seq[LxcDnatSeenRule], proto: Protocol, zones: seq[ZoneName], port: uint16): Option[LxcDnatSeenRule] =
+  for entry in seen:
+    if entry.proto != proto or entry.port != port:
+      continue
+
+    if lxcDnatZonesOverlap(entry.inZones, zones):
+      return some(entry)
+
+  result = none(LxcDnatSeenRule)
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc toPlannedRule(path: string, request: LxcDnatRequestFile, rule: LxcDnatRequestRule): LxcDnatPlannedRule =
   result = LxcDnatPlannedRule(
     requestPath: path,
@@ -570,7 +609,7 @@ proc buildLxcDnatSyncPlan*(
     checkReservedPorts = true
 ): AE[LxcDnatSyncPlan] =
   var plan = LxcDnatSyncPlan(rules: @[], warnings: @[])
-  var seen = initTable[LxcDnatKey, string]()
+  var seen: seq[LxcDnatSeenRule] = @[]
   let hostPorts =
     if checkHostListenPorts:
       collectHostListenPorts()
@@ -581,19 +620,30 @@ proc buildLxcDnatSyncPlan*(
     let path = pair[0]
     let request = pair[1]
 
-    for rule in request.rules:
-      let key = requestRuleKey(rule)
+    for rawRule in request.rules:
+      var rule = rawRule
       let label = &"{request.instance}:{rule.name}"
+      let zonesRes = resolveLxcDnatZones(cfg, rule.inZone, &"{label}.in")
+
+      if zonesRes.isErr:
+        plan.addWarning(path, request.instance, rule, zonesRes.error.msg)
+        continue
+
+      let zones = zonesRes.get()
+      rule.inZone = ?canonicalLxcDnatInZone(cfg, rule.inZone, &"{label}.in")
+      let key = requestRuleKey(rule)
 
       if checkReservedPorts and isReservedPort(rule.proto, rule.port):
         plan.addWarning(path, request.instance, rule, &"reserved host port: {protoText(rule.proto)}/{rule.port}")
         continue
 
-      if seen.hasKey(key):
-        plan.addWarning(path, request.instance, rule, &"listen port conflict with {seen[key]}: {keyText(key)}")
+      let seenCollision = lxcDnatRuleConflicts(seen, rule.proto, zones, rule.port)
+      if seenCollision.isSome:
+        let collision = seenCollision.get()
+        plan.addWarning(path, request.instance, rule, &"listen port conflict with {collision.label}: {keyText(key)}")
         continue
 
-      let staticCollision = existingStaticDnatCollision(cfg, rule)
+      let staticCollision = existingStaticDnatCollision(cfg, rule, zones)
       if staticCollision.isSome:
         plan.addWarning(path, request.instance, rule, &"listen port conflict with {staticCollision.get()}: {keyText(key)}")
         continue
@@ -602,7 +652,13 @@ proc buildLxcDnatSyncPlan*(
         plan.addWarning(path, request.instance, rule, &"host listen port conflict: {protoText(rule.proto)}/{rule.port}")
         continue
 
-      seen[key] = label
+      seen.add(LxcDnatSeenRule(
+        proto: rule.proto,
+        inZones: zones,
+        inZoneText: rule.inZone,
+        port: rule.port,
+        label: label,
+      ))
       plan.rules.add(toPlannedRule(path, request, rule))
 
   result = ok(plan)
@@ -686,19 +742,19 @@ proc statusFilePath(statusDir: string, instance: string): AE[string] =
 #
 # ------------------------------------------------------------------------------
 proc statusRuleKey(instance: string, rule: LxcDnatRequestRule): string =
-  result = &"{instance}\x00{rule.name}\x00{protoText(rule.proto)}\x00{rule.port}\x00{rule.toAddr}\x00{rule.toPort}"
+  result = &"{instance}\x00{rule.name}\x00{rule.inZone}\x00{protoText(rule.proto)}\x00{rule.port}\x00{rule.toAddr}\x00{rule.toPort}"
 
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
 proc statusRuleKey(rule: LxcDnatPlannedRule): string =
-  result = &"{rule.instance}\x00{rule.name}\x00{protoText(rule.proto)}\x00{rule.port}\x00{rule.toAddr}\x00{rule.toPort}"
+  result = &"{rule.instance}\x00{rule.name}\x00{rule.inZone}\x00{protoText(rule.proto)}\x00{rule.port}\x00{rule.toAddr}\x00{rule.toPort}"
 
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
 proc statusRuleKey(warning: LxcDnatSyncWarning): string =
-  result = &"{warning.instance}\x00{warning.rule}\x00{protoText(warning.proto)}\x00{warning.port}\x00{warning.toAddr}\x00{warning.toPort}"
+  result = &"{warning.instance}\x00{warning.rule}\x00{warning.inZone}\x00{protoText(warning.proto)}\x00{warning.port}\x00{warning.toAddr}\x00{warning.toPort}"
 
 # ------------------------------------------------------------------------------
 #
@@ -757,7 +813,28 @@ proc buildLxcDnatStatusNodes*(
     var activeCount = 0
     var skippedCount = 0
 
-    for rule in request.rules:
+    for rawRule in request.rules:
+      var rule = rawRule
+      for plannedRule in plan.rules:
+        if plannedRule.instance == request.instance and
+           plannedRule.name == rule.name and
+           plannedRule.proto == rule.proto and
+           plannedRule.port == rule.port and
+           plannedRule.toAddr == rule.toAddr and
+           plannedRule.toPort == rule.toPort:
+          rule.inZone = plannedRule.inZone
+          break
+
+      for warning in plan.warnings:
+        if warning.instance == request.instance and
+           warning.rule == rule.name and
+           warning.proto == rule.proto and
+           warning.port == rule.port and
+           warning.toAddr == rule.toAddr and
+           warning.toPort == rule.toPort:
+          rule.inZone = warning.inZone
+          break
+
       let key = statusRuleKey(request.instance, rule)
       if active.hasKey(key):
         inc(activeCount)

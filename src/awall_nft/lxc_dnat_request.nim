@@ -2,6 +2,7 @@ import std/[json, os, strformat, strutils]
 
 import ./errors
 import ./lxc_dnat_decl
+import ./lxc_dnat_zones
 import ./types
 
 proc cRename(oldpath: cstring, newpath: cstring): cint {.importc: "rename", header: "<stdio.h>".}
