@@ -14,7 +14,7 @@ proc requireOk[T](res: AE[T]): T =
 proc testRequestJson() =
   let decl = requireOk(parseLxcDnatDeclText("""
 [web]
-in = Closed
+in = Closed, LAN
 src = 203.0.113.10/32, 198.51.100.0/24
 proto = tcp
 port = 8880
@@ -39,7 +39,7 @@ enabled = false
   doAssert node["address"].getStr() == "10.0.3.13"
   doAssert node["dnat"].len == 1
   doAssert node["dnat"][0]["name"].getStr() == "web"
-  doAssert node["dnat"][0]["in"].getStr() == "Closed"
+  doAssert node["dnat"][0]["in"].getStr() == "Closed,LAN"
   doAssert node["dnat"][0]["service"]["proto"].getStr() == "tcp"
   doAssert node["dnat"][0]["service"]["port"].getInt() == 8880
   doAssert node["dnat"][0]["to-addr"].getStr() == "10.0.3.13"

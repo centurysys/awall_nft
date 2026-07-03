@@ -30,7 +30,7 @@ port = 8022
 to-port = 22
 
 [web]
-in = Closed
+in = Closed, LAN
 src = 203.0.113.10/32, 198.51.100.0/24
 proto = tcp
 port = 8880
@@ -60,6 +60,7 @@ enabled = false
   doAssert decl.rules[0].enabled
 
   doAssert decl.rules[1].name == "web"
+  doAssert decl.rules[1].inZone == "Closed,LAN"
   doAssert decl.rules[1].srcAddrs == @["203.0.113.10/32", "198.51.100.0/24"]
   doAssert decl.rules[1].port == uint16(8880)
   doAssert decl.rules[1].toPort == uint16(80)
@@ -117,6 +118,17 @@ to-port = 81
 in = Closed
 proto = tcp
 port = 8880
+""", "bad.conf"),
+    ekInvalidRule
+  )
+
+  requireErr(
+    parseLxcDnatDeclText("""
+[web]
+in = Closed,,LAN
+proto = tcp
+port = 8880
+to-port = 80
 """, "bad.conf"),
     ekInvalidRule
   )

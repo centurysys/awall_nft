@@ -1,6 +1,7 @@
 import std/[algorithm, options, os, strformat, strutils, tables]
 
 import ./errors
+import ./lxc_dnat_zones
 import ./types
 
 type
@@ -219,14 +220,10 @@ proc parseSection(section: LxcDnatSection, path: string): AE[LxcDnatDeclRule] =
     result = ok(rule)
     return
 
-  rule.inZone = (?requireValue(section, "in", path)).strip()
-
-  if rule.inZone.len == 0:
-    let line = section.valueLine("in")
-    return fail[LxcDnatDeclRule](
-      ekInvalidRule,
-      &"{where(path, line)}: in must not be empty"
-    )
+  rule.inZone = ?normalizeRawLxcDnatInZone(
+    ?requireValue(section, "in", path),
+    where(path, section.valueLine("in"))
+  )
 
   if section.values.hasKey("src"):
     rule.srcAddrs = ?splitList(
