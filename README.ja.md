@@ -553,8 +553,10 @@ defaultでは、生成されるrulesetの先頭に `flush ruleset` は出力し�
 代わりに、awall_nftが自分で管理するtableだけを置き換えるため、次のpreludeを出力します。
 
 ```nft
-destroy table inet awall_nft
-destroy table ip awall_nft_nat
+table inet awall_nft
+delete table inet awall_nft
+table ip awall_nft_nat
+delete table ip awall_nft_nat
 ```
 
 これにより、LXCなど他のサービスが作成したtableを消さずに、awall_nft管理tableだけを再作成できます。

@@ -80,7 +80,7 @@ proc testEmitDynamicDnat() =
   doAssert plan.warnings.len == 0
 
   let nft = requireOk(emitLxcDnatNft(cfg, plan.rules))
-  doAssert nft.contains("destroy table ip awall_lxc_dnat")
+  doAssert nft.contains("delete table ip awall_lxc_dnat")
   doAssert nft.contains("type nat hook prerouting priority -90; policy accept;")
   doAssert nft.contains("iifname")
   doAssert nft.contains("\"eth0\"")

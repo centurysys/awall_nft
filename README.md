@@ -560,8 +560,10 @@ By default, the generated ruleset no longer starts with `flush ruleset`.
 Instead, it emits a prelude that replaces only the tables managed by awall_nft:
 
 ```nft
-destroy table inet awall_nft
-destroy table ip awall_nft_nat
+table inet awall_nft
+delete table inet awall_nft
+table ip awall_nft_nat
+delete table ip awall_nft_nat
 ```
 
 This keeps tables created by other services, such as LXC, while recreating only the awall_nft-managed tables.

@@ -675,7 +675,12 @@ proc emitLxcDnatNft*(cfg: NormalizedConfig, rules: seq[LxcDnatPlannedRule]): AE[
     outp.add(line)
     outp.add("\n")
 
-  addLine(0, &"destroy table {LxcDnatFamily} {LxcDnatTable}")
+  # Avoid `destroy table` here.  It requires newer kernel/nftables support and
+  # fails on older LTS kernels such as 5.10.y and 5.15.y.  Declaring the table
+  # first makes the following `delete table` safe even when the table did not
+  # previously exist.
+  addLine(0, &"table {LxcDnatFamily} {LxcDnatTable}")
+  addLine(0, &"delete table {LxcDnatFamily} {LxcDnatTable}")
   addLine(0, &"table {LxcDnatFamily} {LxcDnatTable} {{")
   addLine(1, &"chain {LxcDnatPreroutingChain} {{")
   addLine(2, &"type nat hook prerouting priority {LxcDnatPriority}; policy accept;")

@@ -328,7 +328,8 @@ lxc-dnat-sync
 生成される table は次の形です。
 
 ```nft
-destroy table ip awall_lxc_dnat
+table ip awall_lxc_dnat
+delete table ip awall_lxc_dnat
 
 table ip awall_lxc_dnat {
         chain prerouting {

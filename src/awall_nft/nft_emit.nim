@@ -1187,13 +1187,25 @@ proc emitNatTable(outp: var string, cfg: NormalizedConfig, opts: NftEmitOptions)
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc emitTableDeletePrelude(outp: var string, family: string, tableName: string) =
+  ## Avoid `destroy table` here.  It requires newer kernel/nftables support
+  ## and fails on older LTS kernels such as 5.10.y and 5.15.y.
+  ##
+  ## Declaring the table first makes the following `delete table` safe even
+  ## when the table did not previously exist.
+  addLine(outp, 0, &"table {family} {tableName}")
+  addLine(outp, 0, &"delete table {family} {tableName}")
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc emitCleanupPrelude(outp: var string, opts: NftEmitOptions) =
   case opts.cleanupMode
   of ncmNone:
     discard
   of ncmReplaceManagedTables:
-    addLine(outp, 0, &"destroy table inet {opts.inetTableName}")
-    addLine(outp, 0, &"destroy table ip {opts.natTableName}")
+    emitTableDeletePrelude(outp, "inet", opts.inetTableName)
+    emitTableDeletePrelude(outp, "ip", opts.natTableName)
     addLine(outp, 0, "")
   of ncmFlushRuleset:
     addLine(outp, 0, "flush ruleset")

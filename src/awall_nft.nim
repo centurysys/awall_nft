@@ -84,7 +84,7 @@ proc main() =
 
       flag(
         "--no-replace-managed-tables",
-        help = "Do not emit the default 'destroy table ...' prelude for awall_nft-managed tables"
+        help = "Do not emit the default managed-table replacement prelude for awall_nft-managed tables"
       )
 
       flag(
@@ -223,7 +223,7 @@ proc main() =
 
       flag(
         "--no-replace-managed-tables",
-        help = "Do not emit the default 'destroy table ...' prelude for awall_nft-managed tables"
+        help = "Do not emit the default managed-table replacement prelude for awall_nft-managed tables"
       )
 
       flag(
