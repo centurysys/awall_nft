@@ -297,6 +297,36 @@ policyの順序は意味を持ちます。本家awallと同様に、広い片側
 
 `service` 名は `services.json` により解決されます。
 
+filter ruleでは、`src` によりIPv4 source addressを制限できます。
+
+```json
+{
+  "filter": [
+    {
+      "in": "WAN",
+      "out": "_fw",
+      "src": "10.0.0.1/32",
+      "service": {
+        "proto": "tcp",
+        "port": 8022
+      },
+      "action": "accept"
+    }
+  ]
+}
+```
+
+`src` には、単一のIPv4 address/CIDR文字列、または配列を指定できます。
+
+```json
+"src": ["10.0.0.1/32", "192.168.10.0/24"]
+```
+
+生成されるnftables ruleでは `ip saddr` として出力されます。filter ruleの
+IPv6 source addressには現時点では対応しておらず、validate時にrejectします。
+`src` が指定されている場合は、`show filters` でもnormalize後のsource address
+制限を確認できます。
+
 ### DNAT
 
 例:
