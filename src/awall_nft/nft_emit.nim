@@ -482,20 +482,40 @@ proc filterChain(rule: NormalizedFilterRule): string =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc filterSourceMatchText(rule: NormalizedFilterRule): string =
+  if rule.srcAddrs.len == 0:
+    result = ""
+    return
+
+  result = &"ip saddr {joinIpAddressSet(rule.srcAddrs)}"
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc filterBaseConditions(
     cfg: NormalizedConfig,
     rule: NormalizedFilterRule,
     chain: string
 ): AE[seq[string]] =
+  var interfaceConds: seq[string] = @[]
+
   case chain
   of "input":
-    result = zoneMatchConditions(cfg, rule.inZones, "iifname")
+    interfaceConds = ?zoneMatchConditions(cfg, rule.inZones, "iifname")
   of "output":
-    result = zoneMatchConditions(cfg, rule.outZones, "oifname")
+    interfaceConds = ?zoneMatchConditions(cfg, rule.outZones, "oifname")
   else:
     let inConds = ?zoneMatchConditions(cfg, rule.inZones, "iifname")
     let outConds = ?zoneMatchConditions(cfg, rule.outZones, "oifname")
-    result = ok(cartesianConditions(inConds, outConds))
+    interfaceConds = cartesianConditions(inConds, outConds)
+
+  let sourceCond = filterSourceMatchText(rule)
+  var conditions: seq[string] = @[]
+
+  for interfaceCond in interfaceConds:
+    conditions.add(combineConds(interfaceCond, sourceCond))
+
+  result = ok(conditions)
 
 # ------------------------------------------------------------------------------
 #

@@ -76,6 +76,7 @@ proc mergeFilters(dst: var AwallSubsetConfig, filters: seq[FilterDto]): AE[void]
     let rule = FilterRule(
       inZones: toZoneNames(filter.inZones),
       outZones: toZoneNames(filter.outZones),
+      srcAddrs: toIpAddresses(filter.srcAddrs),
       service: filter.service,
       action: filter.action,
       connLimit: filter.connLimit,

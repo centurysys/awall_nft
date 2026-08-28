@@ -299,6 +299,10 @@ proc showFilters(outp: var string, cfg: NormalizedConfig) =
 
   for index, filter in cfg.filters:
     outp.add(&"[{index}] {formatZones(filter.inZones)} -> {formatZones(filter.outZones)}  {formatAction(filter.action)}\n")
+
+    if filter.srcAddrs.len > 0:
+      outp.add(&"    src       : {formatAddresses(filter.srcAddrs)}\n")
+
     outp.add(&"    match     : {formatMatches(filter.matches)}\n")
 
     if filter.connLimit.isSome:

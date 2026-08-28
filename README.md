@@ -300,6 +300,35 @@ Example:
 
 The service name is resolved using `services.json`.
 
+Filter rules can also restrict the IPv4 source address with `src`:
+
+```json
+{
+  "filter": [
+    {
+      "in": "WAN",
+      "out": "_fw",
+      "src": "10.0.0.1/32",
+      "service": {
+        "proto": "tcp",
+        "port": 8022
+      },
+      "action": "accept"
+    }
+  ]
+}
+```
+
+`src` accepts either a single IPv4 address/CIDR string or an array:
+
+```json
+"src": ["10.0.0.1/32", "192.168.10.0/24"]
+```
+
+The generated nftables rule uses `ip saddr`. IPv6 source addresses in filter
+rules are not supported and are rejected during validation. `show filters`
+also displays the normalized source-address restriction when `src` is present.
+
 ### DNAT
 
 Example:

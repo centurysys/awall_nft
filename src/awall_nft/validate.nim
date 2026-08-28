@@ -131,6 +131,99 @@ proc validateIpAddressList(addrs: seq[IpAddress], where: string): AE[void] =
 # ------------------------------------------------------------------------------
 #
 # ------------------------------------------------------------------------------
+proc isDecimalNumber(text: string): bool =
+  if text.len == 0:
+    return false
+
+  for ch in text:
+    if ch < '0' or ch > '9':
+      return false
+
+  result = true
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc isValidIpv4Address(text: string): bool =
+  let octets = text.split('.')
+
+  if octets.len != 4:
+    return false
+
+  for octet in octets:
+    if octet.len == 0 or octet.len > 3 or not isDecimalNumber(octet):
+      return false
+
+    var value = 0
+
+    for ch in octet:
+      value = value * 10 + (ord(ch) - ord('0'))
+
+    if value > 255:
+      return false
+
+  result = true
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc validateFilterSourceAddress(sourceAddr: IpAddress, where: string): AE[void] =
+  let text = string(sourceAddr)
+
+  if text.len == 0:
+    return failVoid(ekInvalidRule, where & ": address must not be empty")
+
+  if text.contains(":"):
+    return failVoid(
+      ekUnsupported,
+      where & ": IPv6 source address is not supported in filter rules"
+    )
+
+  let parts = text.split('/')
+
+  if parts.len > 2 or not isValidIpv4Address(parts[0]):
+    return failVoid(
+      ekInvalidRule,
+      where & ": invalid IPv4 source address '" & text & "'"
+    )
+
+  if parts.len == 2:
+    let prefix = parts[1]
+
+    if prefix.len > 2 or not isDecimalNumber(prefix):
+      return failVoid(
+        ekInvalidRule,
+        where & ": invalid IPv4 prefix length '" & prefix & "'"
+      )
+
+    var prefixLength = 0
+
+    for ch in prefix:
+      prefixLength = prefixLength * 10 + (ord(ch) - ord('0'))
+
+    if prefixLength > 32:
+      return failVoid(
+        ekInvalidRule,
+        where & ": IPv4 prefix length must be between 0 and 32"
+      )
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
+proc validateFilterSourceAddresses(
+    addrs: seq[IpAddress],
+    where: string
+): AE[void] =
+  for index, sourceAddr in addrs:
+    ?validateFilterSourceAddress(sourceAddr, where & "[" & $index & "]")
+
+  result = okVoid()
+
+# ------------------------------------------------------------------------------
+#
+# ------------------------------------------------------------------------------
 proc validateServiceSpec(service: ServiceSpec, where: string): AE[void] =
   case service.kind
   of sskNone:
@@ -182,6 +275,7 @@ proc validateFilters(cfg: AwallSubsetConfig): AE[void] =
 
     ?validateZoneRefs(cfg, filter.inZones, where & ".in")
     ?validateZoneRefs(cfg, filter.outZones, where & ".out")
+    ?validateFilterSourceAddresses(filter.srcAddrs, where & ".src")
     ?validateServiceSpec(filter.service, where & ".service")
 
     if filter.inZones.len == 0 and filter.outZones.len == 0:
