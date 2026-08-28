@@ -110,6 +110,7 @@ proc normalizeFilters(
     let rule = NormalizedFilterRule(
       inZones: filter.inZones,
       outZones: filter.outZones,
+      srcAddrs: filter.srcAddrs,
       matches: matches,
       action: filter.action,
       connLimit: filter.connLimit,

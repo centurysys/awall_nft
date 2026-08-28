@@ -229,6 +229,7 @@ type
   NormalizedFilterRule* = object
     inZones*: seq[ZoneName]
     outZones*: seq[ZoneName]
+    srcAddrs*: seq[IpAddress]
     matches*: seq[NormalizedServiceMatch]
     action*: Action
     connLimit*: Option[ConnLimit]
