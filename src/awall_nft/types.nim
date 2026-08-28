@@ -101,6 +101,7 @@ type
   FilterDto* = object
     inZones* {.json: "in,omitempty".}: ZoneList
     outZones* {.json: "out,omitempty".}: ZoneList
+    srcAddrs* {.json: "src,omitempty".}: AddressList
     service* {.json: ",omitempty".}: ServiceSpec
     action* {.json: ",required".}: Action
     connLimit* {.json: "conn-limit,omitempty".}: Option[ConnLimit]
@@ -159,6 +160,7 @@ type
   FilterRule* = object
     inZones*: seq[ZoneName]
     outZones*: seq[ZoneName]
+    srcAddrs*: seq[IpAddress]
     service*: ServiceSpec
     action*: Action
     connLimit*: Option[ConnLimit]
