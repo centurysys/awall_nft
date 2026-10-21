@@ -1,17 +1,21 @@
 # tests/t_parse_config.nim
 
+import std/os
+
 import pretty
 import sunny
 
 import awall_nft/types
 
 proc main() =
-  let baseText = readFile("testdata/awall/base.json")
-  let zoneText = readFile("testdata/awall/zone.json")
-  let filterText = readFile("testdata/awall/filter.json")
-  let dnatText = readFile("testdata/awall/dnat.json")
-  let snatText = readFile("testdata/awall/snat.json")
-  let servicesText = readFile("testdata/awall/services.json")
+  let dir = getAppDir() / "testdata" / "awall"
+
+  let baseText = readFile(dir / "base.json")
+  let zoneText = readFile(dir / "zone.json")
+  let filterText = readFile(dir / "filter.json")
+  let dnatText = readFile(dir / "dnat.json")
+  let snatText = readFile(dir / "snat.json")
+  let servicesText = readFile(dir / "services.json")
 
   let base = ConfigDto.fromJson(baseText)
   let zone = ConfigDto.fromJson(zoneText)

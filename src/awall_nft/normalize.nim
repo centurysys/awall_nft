@@ -5,23 +5,17 @@ import ./services
 import ./types
 
 # ------------------------------------------------------------------------------
-#
+# Preserve optional ICMP type and reply-type when normalizing a service atom.
 # ------------------------------------------------------------------------------
 proc toNormalizedMatch(atom: ServiceAtom): NormalizedServiceMatch =
   result = NormalizedServiceMatch(
     family: atom.family,
     proto: atom.proto,
     ports: atom.port.items,
-    icmpType: none(int),
-    icmpReplyType: none(int),
+    icmpType: atom.`type`,
+    icmpReplyType: atom.replyType,
     ctHelper: none(string),
   )
-
-  if atom.`type` != 0:
-    result.icmpType = some(atom.`type`)
-
-  if atom.replyType != 0:
-    result.icmpReplyType = some(atom.replyType)
 
   if atom.ctHelper.len > 0:
     result.ctHelper = some(atom.ctHelper)

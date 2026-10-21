@@ -1,6 +1,6 @@
 # tests/t_merge_config.nim
 
-import std/tables
+import std/[os, tables]
 import pretty
 import sunny
 
@@ -11,11 +11,13 @@ proc readConfig(path: string): ConfigDto =
   result = ConfigDto.fromJson(text)
 
 proc main() =
-  let base = readConfig("testdata/awall/base.json")
-  let zone = readConfig("testdata/awall/zone.json")
-  let filter = readConfig("testdata/awall/filter.json")
-  let dnat = readConfig("testdata/awall/dnat.json")
-  let snat = readConfig("testdata/awall/snat.json")
+  let dir = getAppDir() / "testdata" / "awall"
+
+  let base = readConfig(dir / "base.json")
+  let zone = readConfig(dir / "zone.json")
+  let filter = readConfig(dir / "filter.json")
+  let dnat = readConfig(dir / "dnat.json")
+  let snat = readConfig(dir / "snat.json")
 
   let mergedRes = mergeConfigs([base, zone, filter, dnat, snat])
 

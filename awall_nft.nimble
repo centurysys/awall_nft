@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.4.0"
+version       = "0.5.0"
 author        = "Takeyoshi Kikuchi"
 description   = "Generate nftables rules from a small awall-compatible firewall configuration subset."
 license       = "MIT"
@@ -11,8 +11,8 @@ bin           = @["awall_nft", "lxc_dnat_helper", "lxc_dnat_sync"]
 
 # Dependencies
 
-requires "nim >= 2.2.10"
+requires "nim >= 2.2.12"
 requires "results >= 0.5.1"
 requires "sunny >= 0.1.10"
-#requires "pretty >= 0.2.1"
+requires "pretty >= 0.2.1"
 requires "argparse >= 4.0.2"

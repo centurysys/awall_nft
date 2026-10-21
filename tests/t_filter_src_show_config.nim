@@ -9,7 +9,7 @@ proc main() =
   let mainPath = workDir / "main.json"
   let privateDir = workDir / "private"
   let configPath = privateDir / "filter-src.json"
-  let servicesPath = "testdata" / "awall" / "services.json"
+  let servicesPath = getAppDir() / "testdata" / "awall" / "services.json"
 
   createDir("out")
   createDir(workDir)
@@ -55,6 +55,16 @@ proc main() =
         "port": 22
       },
       "action": "accept"
+    },
+    {
+      "in": "WAN",
+      "out": "_fw",
+      "service": {
+        "proto": "icmp",
+        "type": 0,
+        "reply-type": 0
+      },
+      "action": "accept"
     }
   ]
 }
@@ -84,6 +94,9 @@ proc main() =
   )
   doAssert text.contains(
     "family=any proto=tcp ports=22"
+  )
+  doAssert text.contains(
+    "family=any proto=icmp icmp-type=0 icmp-reply-type=0"
   )
 
   echo "filter src show config: ok"

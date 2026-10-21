@@ -22,7 +22,7 @@ proc showService(db: ServiceDb, name: string) =
   print res.get()
 
 proc main() =
-  let dir = "testdata" / "awall"
+  let dir = getAppDir() / "testdata" / "awall"
   let catalog = readServiceCatalog(dir / "services.json")
 
   echo "== catalog =="
