@@ -427,6 +427,51 @@ service定義は、object形式とarray形式の両方に対応しています�
 - `ospf`
 - `igmp`
 
+### ICMPとPINGサービス
+
+ICMPとPINGは同じ意味ではありません。IPv4のICMP全体を許可する設定と、
+ping用のEcho Requestを許可する設定を区別してください。
+
+例えば、次のようにserviceを定義できます。
+
+```json
+{
+  "service": {
+    "icmp": { "proto": "icmp" },
+    "icmpv6-all": { "proto": "icmpv6" },
+    "ping": [
+      { "proto": "icmp", "type": 8, "reply-type": 0 },
+      { "proto": "icmpv6", "type": 128, "reply-type": 129 }
+    ]
+  }
+}
+```
+
+- `icmp` はIPv4 ICMPを対象とします。typeを省略するとICMP全体に一致します。
+- `icmpv6` はIPv6 ICMPを対象とします。typeを省略するとICMPv6全体に一致します。
+- `ping` は上記の定義では、IPv4 Echo Request（type 8）とIPv6 Echo Request（type 128）を対象とします。ICMP全体の代わりにはなりません。
+- `type` と `reply-type` は任意の0～255の整数で、未指定と明示的な0を区別します。例えばIPv4のtype 0はEcho Replyです。
+- ICMP/ICMPv6にはTCP/UDPのようなportがありません。`port` は指定せず、TCP/UDPではportを指定します。
+
+type未指定のとき、nftablesには次の条件を生成します。
+
+```nft
+ip protocol icmp
+meta nfproto ipv6 meta l4proto ipv6-icmp
+```
+
+type指定時は従来どおり `icmp type 0`、`icmpv6 type 128` などを生成します。
+IPv6のtype未指定では、拡張ヘッダを考慮した `meta l4proto` を利用します。
+
+`reply-type` は現在、JSONから読み込んで正規化した値を保持しますが、
+nftablesのルール生成には直接使用していません。一般的なping応答は
+`ct state established,related accept` の適用条件により許可されます。
+`reply-type` の指定だけで独立した応答許可ルールが生成されるわけではありません。
+
+管理UIから単にpingを通したい場合は、ICMP全体の許可ではなくPINGサービスを
+使う方が許可範囲を限定できます。実際のサービス名の定義・上書きについては、
+その機器で読み込まれる `services.json` を確認してください。
+
 ### Flowtable hints / flowtableヒント
 
 `flowtable` は `awall-nft` 独自拡張です。標準awallの許可モデルでは
@@ -730,6 +775,47 @@ ARM向けcross build例:
 nimble build -d:release --cpu:arm
 arm-linux-gnueabihf-strip awall_nft
 ```
+
+## テスト（ICMPルール生成の回帰確認）
+
+ICMP関連の回帰テストでは、JSON読み込み、サービス名解決、設定検証、
+正規化、nftablesルール生成を確認します。ICMPとIPマスカレードが同時に
+指定されていても、正しいrulesetを出力することを検証します。
+
+```sh
+nimble test
+```
+
+ICMP専用の単体・結合テストだけを実行する場合:
+
+```sh
+nim c -r --path:src tests/t_icmp_type_option.nim
+nim c -r --path:src tests/t_icmp_emit.nim
+nim c -r --path:src tests/t_icmp_integration.nim
+```
+
+通常の `t_icmp_integration.nim` は、生成結果の文字列検証まで行います。
+実際のnftablesパーサーによる構文チェックは、次のように明示して実行します。
+
+```sh
+AWALL_NFT_RUN_NFT_CHECK=1 nim c -r --path:src tests/t_icmp_integration.nim
+```
+
+このオプションでは内部で `nft -c -f` を実行しますが、ルールを適用する
+`nft -f` は実行しません。環境によっては `CAP_NET_ADMIN` が必要です。
+権限不足の場合は、通常の結合テストが表示する生成ファイルのパスに対して、
+権限のある環境で `nft -c -f <生成ファイル>` を実行してください。
+
+実機の設定を用いた最終確認では、ICMPサービスとmasqueradeを併用した
+状態で、次の順に実行します。
+
+```sh
+awall_nft generate -o /tmp/awall_nft_test.nft
+awall_nft check /tmp/awall_nft_test.nft
+```
+
+`check` が失敗した場合は、新しいNATルールも含めて設定全体を反映できません。
+修正後の動作確認でも、生成後の構文チェックを省略しないでください。
 
 ## 起動時運用の例
 
