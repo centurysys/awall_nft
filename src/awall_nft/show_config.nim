@@ -167,7 +167,7 @@ proc formatMatches(matches: seq[NormalizedServiceMatch]): string =
   result = joinOrDash(parts)
 
 # ------------------------------------------------------------------------------
-#
+# Format a service specification without discarding explicit ICMP type zero.
 # ------------------------------------------------------------------------------
 proc formatServiceSpec(service: ServiceSpec): string =
   case service.kind
@@ -186,11 +186,11 @@ proc formatServiceSpec(service: ServiceSpec): string =
       if atom.port.items.len > 0:
         atomParts.add("ports=" & formatPorts(atom.port.items))
 
-      if atom.`type` != 0:
-        atomParts.add("icmp-type=" & $atom.`type`)
+      if atom.`type`.isSome:
+        atomParts.add("icmp-type=" & $atom.`type`.get())
 
-      if atom.replyType != 0:
-        atomParts.add("icmp-reply-type=" & $atom.replyType)
+      if atom.replyType.isSome:
+        atomParts.add("icmp-reply-type=" & $atom.replyType.get())
 
       if atom.ctHelper.len > 0:
         atomParts.add("ct-helper=" & atom.ctHelper)

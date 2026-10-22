@@ -429,6 +429,52 @@ Supported protocols currently include:
 - `ospf`
 - `igmp`
 
+### ICMP and PING services
+
+ICMP and PING are not interchangeable: allowing all IPv4 ICMP messages is
+broader than allowing ping Echo Requests.
+
+For example, a service catalog may contain:
+
+```json
+{
+  "service": {
+    "icmp": { "proto": "icmp" },
+    "icmpv6-all": { "proto": "icmpv6" },
+    "ping": [
+      { "proto": "icmp", "type": 8, "reply-type": 0 },
+      { "proto": "icmpv6", "type": 128, "reply-type": 129 }
+    ]
+  }
+}
+```
+
+- `icmp` matches IPv4 ICMP; omitting `type` matches the entire protocol.
+- `icmpv6` matches IPv6 ICMP; omitting `type` matches the entire protocol.
+- With the definition above, `ping` matches IPv4 Echo Request (type 8) and IPv6 Echo Request (type 128), not all ICMP messages.
+- `type` and `reply-type` are optional integers in the range 0–255. Omission is distinct from an explicit zero; IPv4 ICMP type 0 is Echo Reply.
+- ICMP/ICMPv6 have no TCP/UDP-style ports. Do not specify `port` for these protocols; TCP and UDP require it.
+
+For an ICMP service without a type, the generated nftables expressions are:
+
+```nft
+ip protocol icmp
+meta nfproto ipv6 meta l4proto ipv6-icmp
+```
+
+With an explicit type, the generator still emits expressions such as
+`icmp type 0` and `icmpv6 type 128`. The IPv6 protocol-only match uses
+`meta l4proto` to account for IPv6 extension headers.
+
+At present, `reply-type` is parsed and preserved through normalization but is
+not used to generate additional nftables rules. Ordinary ping responses are
+normally allowed by the existing `ct state established,related accept` rules.
+Specifying `reply-type` does not independently emit an accept rule for replies.
+
+If the goal is only to allow ping, the PING service usually grants a narrower
+permission than allowing all ICMP. Check the `services.json` actually loaded
+on the target device, including any overridden service definitions.
+
 ### Flowtable hints
 
 `flowtable` is an `awall-nft`-specific extension. It is not part of the
@@ -737,6 +783,48 @@ Cross-compiling to ARM is also possible, for example:
 nimble build -d:release --cpu:arm
 arm-linux-gnueabihf-strip awall_nft
 ```
+
+## Testing ICMP ruleset generation
+
+The ICMP regression tests cover JSON loading, service resolution,
+validation, normalization, and nftables ruleset generation. They also check
+ICMP combined with IP masquerading.
+
+```sh
+nimble test
+```
+
+To run just the relevant unit and integration tests:
+
+```sh
+nim c -r --path:src tests/t_icmp_type_option.nim
+nim c -r --path:src tests/t_icmp_emit.nim
+nim c -r --path:src tests/t_icmp_integration.nim
+```
+
+By default, `t_icmp_integration.nim` checks the generated ruleset text.
+To additionally invoke the actual nftables parser, explicitly enable `nft -c`:
+
+```sh
+AWALL_NFT_RUN_NFT_CHECK=1 nim c -r --path:src tests/t_icmp_integration.nim
+```
+
+This executes `nft -c -f` without applying the firewall ruleset. The check
+may require `CAP_NET_ADMIN`. If it fails because of permissions, use the path
+to the generated file printed by the normal integration test, and run
+`nft -c -f <generated-file>` in an environment with the necessary privileges.
+
+For a final check with an actual target configuration that combines ICMP and
+masquerade, run:
+
+```sh
+awall_nft generate -o /tmp/awall_nft_test.nft
+awall_nft check /tmp/awall_nft_test.nft
+```
+
+A syntax error in any part of the generated ruleset prevents the updated NAT
+rules from being applied as part of that transaction. Do not skip the syntax
+check before applying a new configuration.
 
 ## Suggested boot-time use
 

@@ -61,8 +61,8 @@ type
     family* {.json: ",omitempty".}: Family
     proto* {.json: ",required".}: Protocol
     port* {.json: ",omitempty".}: PortList
-    `type`* {.json: "type,omitempty".}: int
-    replyType* {.json: "reply-type,omitempty".}: int
+    `type`* {.json: "type,omitempty".}: Option[uint8]
+    replyType* {.json: "reply-type,omitempty".}: Option[uint8]
     ctHelper* {.json: "ct-helper,omitempty".}: string
 
   ServiceEntries* = object
@@ -222,8 +222,8 @@ type
     family*: Family
     proto*: Protocol
     ports*: seq[uint16]
-    icmpType*: Option[int]
-    icmpReplyType*: Option[int]
+    icmpType*: Option[uint8]
+    icmpReplyType*: Option[uint8]
     ctHelper*: Option[string]
 
   NormalizedFilterRule* = object

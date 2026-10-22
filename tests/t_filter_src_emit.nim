@@ -16,8 +16,8 @@ proc makeTcpMatch(port: uint16): NormalizedServiceMatch =
     family: famAny,
     proto: protoTcp,
     ports: @[port],
-    icmpType: none(int),
-    icmpReplyType: none(int),
+    icmpType: none(uint8),
+    icmpReplyType: none(uint8),
     ctHelper: none(string),
   )
 

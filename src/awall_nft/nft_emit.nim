@@ -365,7 +365,7 @@ proc collectFlowtableIfaces(cfg: NormalizedConfig, opts: NftEmitOptions): seq[st
     result = @[]
 
 # ------------------------------------------------------------------------------
-#
+# Generate a complete nftables match expression for one normalized service.
 # ------------------------------------------------------------------------------
 proc serviceMatchText(match: NormalizedServiceMatch): AE[string] =
   case match.proto
@@ -382,13 +382,13 @@ proc serviceMatchText(match: NormalizedServiceMatch): AE[string] =
     if match.icmpType.isSome:
       result = ok("icmp type " & $match.icmpType.get())
     else:
-      result = ok("icmp")
+      result = ok("ip protocol icmp")
 
   of protoIcmpv6:
     if match.icmpType.isSome:
       result = ok("icmpv6 type " & $match.icmpType.get())
     else:
-      result = ok("icmpv6")
+      result = ok("meta nfproto ipv6 meta l4proto ipv6-icmp")
 
   of protoEsp, protoGre, protoOspf, protoIgmp:
     result = ok("meta l4proto " & protoText(match.proto))

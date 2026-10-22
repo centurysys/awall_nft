@@ -1,0 +1,51 @@
+{
+  "description": "Regression fixture: ICMP service and masquerade",
+  "zone": {
+    "WAN": { "iface": "eth0" },
+    "LAN": { "iface": "eth1" }
+  },
+  "filter": [
+    {
+      "in": "WAN", "out": "_fw",
+      "service": "icmp", "action": "accept"
+    },
+    {
+      "in": "WAN", "out": "_fw",
+      "service": "ping", "action": "accept"
+    },
+    {
+      "in": "WAN", "out": "_fw",
+      "service": { "proto": "icmp", "type": 0 },
+      "action": "accept"
+    },
+    {
+      "in": "WAN", "out": "_fw",
+      "service": { "proto": "icmpv6" },
+      "action": "accept"
+    },
+    {
+      "in": "WAN", "out": "_fw",
+      "service": { "proto": "tcp", "port": 443 },
+      "action": "accept"
+    },
+    {
+      "in": "WAN", "out": "_fw",
+      "service": { "proto": "udp", "port": 53 },
+      "action": "accept"
+    }
+  ],
+  "dnat": [
+    {
+      "in": "WAN", "service": "icmp",
+      "to-addr": "192.0.2.10"
+    },
+    {
+      "in": "WAN",
+      "service": { "proto": "tcp", "port": 8080 },
+      "to-addr": "192.0.2.11", "to-port": 80
+    }
+  ],
+  "snat": [
+    { "out": "WAN" }
+  ]
+}

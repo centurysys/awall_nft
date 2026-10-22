@@ -11,7 +11,7 @@ proc readConfig(path: string): ConfigDto =
   result = ConfigDto.fromJson(text)
 
 proc main() =
-  let dir = "testdata" / "awall"
+  let dir = getAppDir() / "testdata" / "awall"
 
   let base = readConfig(dir / "base.json")
   let zone = readConfig(dir / "zone.json")

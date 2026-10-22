@@ -5,7 +5,6 @@ import sunny
 
 import awall_nft/[
   errors,
-  lxc_dnat_request,
   lxc_dnat_sync_core,
   merge,
   normalize,
@@ -33,7 +32,7 @@ proc readServiceCatalog(path: string): ServiceCatalogDto =
   result = ServiceCatalogDto.fromJson(readFile(path))
 
 proc loadNormalized(): NormalizedConfig =
-  let dir = "testdata" / "awall"
+  let dir = getAppDir() / "testdata" / "awall"
   let base = readConfig(dir / "base.json")
   let zone = readConfig(dir / "zone.json")
   let filter = readConfig(dir / "filter.json")
